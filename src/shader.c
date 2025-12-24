@@ -65,10 +65,10 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  printf("Generating %s at %lux%lu...\n", o, h, v);
+  printf("Generating %s at %ux%u...\n", o, h, v);
 
   fprintf(f, "P6\n");
-  fprintf(f, "%lu %lu\n", h, v);
+  fprintf(f, "%u %u\n", h, v);
   fprintf(f, "255\n");
 
   uint64_t start_ts = micros();
