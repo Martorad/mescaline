@@ -57,6 +57,8 @@ int main(int argc, char **argv) {
     }
   }
 
+  verify_path(o);
+
   srand(time(NULL));
   FILE *f = fopen(o, "wb");
 
