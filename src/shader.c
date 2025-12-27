@@ -2,18 +2,19 @@
 
 int main(int argc, char **argv) {
   int opt;
-  uint32_t h = 5000, v = 5000, algo = 0;
+  uint32_t h = 5000, v = 5000, algo = 0, frames = 1;
   const char *o = NULL, *algo_raw = NULL;
   double tile = 1.0;
   color_t color = {1.0f, 1.0f, 1.0f};
 
   static struct option long_opts[] = {
-      {"h", required_argument, 0, '1'},
-      {"v", required_argument, 0, '2'},
-      {"o", required_argument, 0, '3'},
+      {"horizontal", required_argument, 0, '1'},
+      {"vertical", required_argument, 0, '2'},
+      {"output", required_argument, 0, '3'},
       {"tile", required_argument, 0, '4'},
       {"color", required_argument, 0, '5'},
       {"algo", required_argument, 0, '6'},
+      {"frames", required_argument, 0, '7'},
   };
 
   while ((opt = getopt_long(argc, argv, "", long_opts, NULL)) != -1) {
@@ -29,6 +30,7 @@ int main(int argc, char **argv) {
         color.b = (color_raw & 0xFF) / 255.0f;
         break;
       case '6': algo_raw = optarg; break;
+      case '7': frames = atoi(optarg); break;
       default: fprintf(stderr, "Usage: %s --h=N --v=N --o=output/path\n", argv[0]); return 1;
     }
   }
@@ -38,6 +40,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "Usage: %s --o=output/path\n", argv[0]);
     return 1;
   }
+
   if (algo_raw == NULL) {
     fprintf(stderr, "Error: --algo is required.\n");
     fprintf(stderr,
@@ -57,84 +60,105 @@ int main(int argc, char **argv) {
     }
   }
 
-  verify_path(o);
-
-  srand(time(NULL));
-  FILE *f = fopen(o, "wb");
-
-  if (!f) {
-    printf("F is null\n");
+  if (frames == 0 || frames > 1000) {
+    fprintf(stderr, "Error: Bad frames argument.\n");
     return 1;
   }
 
-  printf("Generating %s at %ux%u...\n", o, h, v);
-
-  fprintf(f, "P6\n");
-  fprintf(f, "%u %u\n", h, v);
-  fprintf(f, "255\n");
-
+  srand(time(NULL));
+  verify_path(o);
   uint64_t start_ts = micros();
+  double delta = 0;
 
-  switch (algo) {
-    case 0: {
-      for (int y = 0; y < h; y++) {
-        for (int x = 0; x < v; x++) {
-          // Checkerboard
-          if (((x / 10) + ((y / 10) % 2)) % 2 == 0) {
-            pixel(0xFF * color.r, 0xFF * color.g, 0xFF * color.b, f);
-          } else {
-            pixel(0x00, 0x00, 0x00, f);
+  for (uint32_t current_frame = 0; current_frame < frames; current_frame++) {
+    char file_path[256] = {'\0'};
+    if (frames == 1) {
+      memcpy(file_path, o, strlen(o));
+    } else {
+      size_t backslash_index = find_final_dir(o);
+      memcpy(file_path, o, backslash_index);
+
+      char temp_filename[32] = {'\0'};
+      sprintf(temp_filename, "%u.ppm", current_frame);
+      strcat(file_path, temp_filename);
+    }
+
+    FILE *f = fopen(file_path, "wb");
+
+    if (!f) {
+      printf("F is null\n");
+      return 1;
+    }
+
+    printf("Generating %s at %ux%u...\n", file_path, h, v);
+
+    fprintf(f, "P6\n");
+    fprintf(f, "%u %u\n", h, v);
+    fprintf(f, "255\n");
+
+    switch (algo) {
+      case 0: {
+        for (int y = 0; y < h; y++) {
+          for (int x = 0; x < v; x++) {
+            // Checkerboard
+            if (((x / 10) + ((y / 10) % 2)) % 2 == 0) {
+              pixel(0xFF * color.r, 0xFF * color.g, 0xFF * color.b, f);
+            } else {
+              pixel(0x00, 0x00, 0x00, f);
+            }
           }
         }
+        break;
       }
-      break;
-    }
-    case 1: {
-      for (int y = 0; y < h; y++) {
-        for (int x = 0; x < v; x++) {
-          // Lasagna
-          float x_norm = (float)x / ((float)h / (M_PI * tile)),
-                y_norm = (float)y / ((float)v / (M_PI * tile));
-          float out = cos(x_norm * 2 + y_norm) + tan(y_norm * 1.45);
-          uint8_t final = out * 128 + 128;
-          pixel(final * color.r, final * color.g, final * color.b, f);
+      case 1: {
+        for (int y = 0; y < h; y++) {
+          for (int x = 0; x < v; x++) {
+            // Lasagna
+            float x_norm = (float)x / ((float)h / (M_PI * tile)),
+                  y_norm = (float)y / ((float)v / (M_PI * tile));
+            float out = cos(x_norm * 2 + y_norm) + tan(y_norm * 1.45);
+            uint8_t final = out * 128 + 128;
+            pixel(final * color.r, final * color.g, final * color.b, f);
+          }
         }
+        break;
       }
-      break;
-    }
-    case 2: {
-      for (int y = 0; y < h; y++) {
-        for (int x = 0; x < v; x++) {
-          // Carreaux
-          double x_norm = (double)x / ((double)h / (M_PI * tile)),
-                 y_norm = (double)y / ((double)v / (M_PI * tile));
-          double out = tan(y_norm) * cos(x_norm + M_PI_2) / sin(x_norm + M_PI_2);
-          uint8_t final = out * 128 + 128;
-          pixel(final * color.r, final * color.g, final * color.b, f);
+      case 2: {
+        for (int y = 0; y < h; y++) {
+          for (int x = 0; x < v; x++) {
+            // Carreaux
+            double x_norm = (double)x / ((double)h / (M_PI * tile)),
+                   y_norm = (double)y / ((double)v / (M_PI * tile));
+            double out = tan(y_norm) * cos(x_norm + M_PI_2 + delta) / sin(x_norm + M_PI_2);
+            uint8_t final = out * 128 + 128;
+            pixel(final * color.r, final * color.g, final * color.b, f);
+          }
         }
+        break;
       }
-      break;
-    }
-    case 0xFFFFFFFF: {
-      for (int y = 0; y < h; y++) {
-        for (int x = 0; x < v; x++) {
-          // test
-          double x_norm = (double)x / ((double)h / (M_PI * tile)),
-                 y_norm = (double)y / ((double)v / (M_PI * tile));
-          double out =
-              sin(x_norm) * sqrt(y_norm) + cos(y_norm + M_PI_2) * tan(x_norm) * log(y_norm);
-          uint8_t final = out * 128 + 128;
-          pixel(final * color.r, final * color.g, final * color.b, f);
+      case 0xFFFFFFFF: {
+        for (int y = 0; y < h; y++) {
+          for (int x = 0; x < v; x++) {
+            // test
+            double x_norm = (double)x / ((double)h / (M_PI * tile)),
+                   y_norm = (double)y / ((double)v / (M_PI * tile));
+            double out =
+                sin(x_norm) * sqrt(y_norm) + cos(y_norm + M_PI_2) * tan(x_norm) * log(y_norm);
+            uint8_t final = out * 128 + 128;
+            pixel(final * color.r, final * color.g, final * color.b, f);
+          }
         }
+        break;
       }
-      break;
+      default: return 1;
     }
-    default: return 1;
+
+    delta += M_PI / 32;
+
+    fclose(f);
   }
 
   printf("Done. Took %.3fs\n", (micros() - start_ts) / 1e6);
-
-  fclose(f);
 
   return 0;
 }

@@ -48,4 +48,14 @@ static bool verify_path(const char *path) {
   return true;
 }
 
+static size_t find_final_dir(const char *path) {
+  size_t last_index = 0;
+
+  for (size_t i = 0; i < strlen(path); i++) {
+    if (path[i] == '/') last_index = i;
+  }
+
+  return last_index + 1;
+}
+
 #endif
