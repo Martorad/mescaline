@@ -159,6 +159,10 @@ int main(int argc, char **argv) {
   }
 
   printf("Done. Took %.3fs\n", (micros() - start_ts) / 1e6);
+  start_ts = micros();
+  printf("Beginning encode...\n");
+  int status = system("ffmpeg -framerate 30 -i outputs/%d.ppm outputs/output.gif");
+  printf("Done (%d).", status);
 
   return 0;
 }
