@@ -75,6 +75,7 @@ The current executable accepts GNU-style long options:
 | `--tile` | No | `1` | Algorithm scale |
 | `--color` | No | `ffffff` | RGB tint in hexadecimal |
 | `--frames` | No | `1` | Frame count from 1 to 1000 |
+| `--help` | No | | Print usage and exit |
 
 When multiple frames are requested, the current implementation writes `0.ppm`, `1.ppm`, and
 so on in the output path's directory. It then always runs this hard-coded command, regardless of

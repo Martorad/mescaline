@@ -16,6 +16,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - CTest-driven CLI regression suite covering all current algorithms, parsing, output, paths,
   deterministic rendering, frame generation, and known defects.
 - Optional AddressSanitizer and UndefinedBehaviorSanitizer build configuration.
+- `--help` output for the current CLI.
 
 ### Changed
 

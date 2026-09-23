@@ -61,7 +61,7 @@ class MescalineCliTests(unittest.TestCase):
     def test_requires_output(self):
         result = self.run_cli("--algo=checkerboard")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("--o is required", result.stderr)
+        self.assertIn("--output is required", result.stderr)
 
     def test_requires_algorithm(self):
         result = self.run_cli("--output=image.ppm")
@@ -110,11 +110,13 @@ class MescalineCliTests(unittest.TestCase):
         result = self.render("blocked")
         self.assertNotEqual(result.returncode, 0)
 
-    @unittest.expectedFailure
     def test_help_succeeds(self):
         result = self.run_cli("--help")
         self.assertEqual(result.returncode, 0)
         self.assertIn("Usage:", result.stdout)
+        self.assertIn("--output", result.stdout)
+        self.assertIn("--algo", result.stdout)
+        self.assertEqual(result.stderr, "")
 
     @unittest.expectedFailure
     def test_rejects_unknown_algorithm(self):

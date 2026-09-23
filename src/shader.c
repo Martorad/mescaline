@@ -1,5 +1,21 @@
 #include "shader.h"
 
+static void print_usage(FILE *stream, const char *program) {
+  fprintf(stream,
+          "Usage: %s --output PATH --algo NAME [OPTIONS]\n"
+          "\n"
+          "Options:\n"
+          "  --output PATH       Output path (required)\n"
+          "  --algo NAME         checkerboard, lasagna, or carreaux (required)\n"
+          "  --horizontal N      Horizontal pixel count (default: 5000)\n"
+          "  --vertical N        Vertical pixel count (default: 5000)\n"
+          "  --tile N            Algorithm scale (default: 1)\n"
+          "  --color RRGGBB      RGB tint (default: ffffff)\n"
+          "  --frames N          Frame count from 1 to 1000 (default: 1)\n"
+          "  --help              Show this help and exit\n",
+          program);
+}
+
 int main(int argc, char **argv) {
   int opt;
   uint32_t h = 5000, v = 5000, algo = 0, frames = 1;
@@ -15,6 +31,7 @@ int main(int argc, char **argv) {
       {"color", required_argument, 0, '5'},
       {"algo", required_argument, 0, '6'},
       {"frames", required_argument, 0, '7'},
+      {"help", no_argument, 0, '8'},
   };
 
   while ((opt = getopt_long(argc, argv, "", long_opts, NULL)) != -1) {
@@ -31,13 +48,14 @@ int main(int argc, char **argv) {
         break;
       case '6': algo_raw = optarg; break;
       case '7': frames = atoi(optarg); break;
-      default: fprintf(stderr, "Usage: %s --h=N --v=N --o=output/path\n", argv[0]); return 1;
+      case '8': print_usage(stdout, argv[0]); return 0;
+      default: print_usage(stderr, argv[0]); return 1;
     }
   }
 
   if (o == NULL) {
-    fprintf(stderr, "Error: --o is required.\n");
-    fprintf(stderr, "Usage: %s --o=output/path\n", argv[0]);
+    fprintf(stderr, "Error: --output is required.\n");
+    print_usage(stderr, argv[0]);
     return 1;
   }
 
