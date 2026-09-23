@@ -36,10 +36,6 @@ ctest --test-dir build --output-on-failure
 Rendering changes must test a tiny non-square image. Threading changes must verify byte-for-byte
 equality between single-threaded and multithreaded output.
 
-Known defects are marked with `unittest.expectedFailure`. Remove that marker in the same change
-that fixes the defect. An unexpected success is a test failure so fixed behavior cannot remain
-silently marked as broken.
-
 Use the sanitizer build for memory-safety and undefined-behavior changes:
 
 ```sh
@@ -48,8 +44,8 @@ cmake --build build-sanitize --parallel
 ctest --test-dir build-sanitize --output-on-failure
 ```
 
-Add focused C unit tests when the rendering core is separated into testable modules. Do not
-expose internal functions solely to test them.
+Keep focused C unit tests for the rendering core and black-box Python tests for the executable.
+Do not expose internal functions solely to test them.
 
 ## C Style
 

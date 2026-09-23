@@ -2,9 +2,13 @@
 
 import os
 from pathlib import Path
+import json
+import selectors
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 
@@ -19,7 +23,25 @@ class MescalineCliTests(unittest.TestCase):
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
         ffmpeg = bin_dir / "ffmpeg"
-        ffmpeg.write_text('#!/bin/sh\nexit "${FAKE_FFMPEG_STATUS:-0}"\n')
+        ffmpeg.write_text(
+            """#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import sys
+import time
+
+if os.environ.get("FAKE_FFMPEG_ARGS"):
+    Path(os.environ["FAKE_FFMPEG_ARGS"]).write_text(json.dumps(sys.argv[1:]))
+if os.environ.get("FAKE_FFMPEG_STARTED"):
+    Path(os.environ["FAKE_FFMPEG_STARTED"]).touch()
+time.sleep(float(os.environ.get("FAKE_FFMPEG_SLEEP", "0")))
+status = int(os.environ.get("FAKE_FFMPEG_STATUS", "0"))
+if status == 0:
+    Path(sys.argv[-1]).write_bytes(b"GIF89a")
+raise SystemExit(status)
+"""
+        )
         ffmpeg.chmod(0o755)
         self.env = os.environ.copy()
         self.env["PATH"] = f"{bin_dir}:{os.environ['PATH']}"
@@ -48,33 +70,96 @@ class MescalineCliTests(unittest.TestCase):
         self.assertEqual(len(pixels), width * height * 3)
         return width, height, pixels
 
-    def render(self, output, algorithm="checkerboard", width=4, height=3, env=None, **kwargs):
+    def wait_for_event(self, process, event, timeout=5):
+        selector = selectors.DefaultSelector()
+        selector.register(process.stderr, selectors.EVENT_READ)
+        deadline = time.monotonic() + timeout
+        try:
+            while time.monotonic() < deadline:
+                ready = selector.select(deadline - time.monotonic())
+                if not ready:
+                    break
+                line = process.stderr.readline()
+                if line and json.loads(line)["event"] == event:
+                    return
+                if process.poll() is not None:
+                    break
+        finally:
+            selector.close()
+        self.fail(f"process did not emit {event!r}")
+
+    def render(self, output, algorithm="checkerboard", width=4, height=3, env=None, **options):
         args = [
             f"--output={output}",
-            f"--algo={algorithm}",
-            f"--horizontal={width}",
-            f"--vertical={height}",
+            f"--algorithm={algorithm}",
+            f"--width={width}",
+            f"--height={height}",
+            "--progress=none",
         ]
-        args.extend(f"--{name}={value}" for name, value in kwargs.items())
+        for name, value in options.items():
+            args.append(f"--{name}" if value is True else f"--{name}={value}")
         return self.run_cli(*args, env=env)
 
     def test_requires_output(self):
-        result = self.run_cli("--algo=checkerboard")
-        self.assertNotEqual(result.returncode, 0)
+        result = self.run_cli("--algorithm=checkerboard")
+        self.assertEqual(result.returncode, 2)
         self.assertIn("--output is required", result.stderr)
 
     def test_requires_algorithm(self):
         result = self.run_cli("--output=image.ppm")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("--algo is required", result.stderr)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--algorithm is required", result.stderr)
 
-    def test_rejects_bad_frame_counts(self):
-        for frames in ("0", "1001", "invalid"):
-            with self.subTest(frames=frames):
+    def test_rejects_invalid_options_and_arguments(self):
+        for argument in ("--algo=checkerboard", "--unknown=value", "positional"):
+            with self.subTest(argument=argument):
+                result = self.run_cli(argument)
+                self.assertEqual(result.returncode, 2)
+
+    def test_rejects_bad_numeric_values(self):
+        cases = (
+            "--width=0",
+            "--width=-1",
+            "--width=+1",
+            "--width=invalid",
+            "--width=100001",
+            "--height=0",
+            "--frames=0",
+            "--frames=1001",
+            "--fps=0",
+            "--fps=1001",
+            "--scale=0",
+            "--scale=nan",
+            "--scale=inf",
+            "--scale=1x",
+        )
+        for argument in cases:
+            with self.subTest(argument=argument):
                 result = self.run_cli(
-                    "--output=image.ppm", "--algo=checkerboard", f"--frames={frames}"
+                    "--algorithm=checkerboard", "--output=image.ppm", argument
                 )
-                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.returncode, 2)
+
+        result = self.run_cli(
+            "--algorithm=checkerboard", "--output=image.ppm", "--width=100000", "--height=1001"
+        )
+        self.assertEqual(result.returncode, 2)
+
+    def test_rejects_duplicate_options(self):
+        result = self.run_cli(
+            "--algorithm=checkerboard",
+            "--algorithm=lasagna",
+            "--output=image.ppm",
+        )
+        self.assertEqual(result.returncode, 2)
+
+    def test_rejects_bad_colors(self):
+        for color in ("fff", "gggggg", "1234567"):
+            with self.subTest(color=color):
+                result = self.run_cli(
+                    "--algorithm=checkerboard", "--output=image.ppm", f"--color={color}"
+                )
+                self.assertEqual(result.returncode, 2)
 
     def test_renders_every_named_algorithm(self):
         for algorithm in ("checkerboard", "lasagna", "carreaux"):
@@ -83,6 +168,7 @@ class MescalineCliTests(unittest.TestCase):
                 result = self.render(output, algorithm)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(self.read_ppm(output)[:2], (4, 3))
+                self.assertEqual(result.stdout, "")
 
     def test_checkerboard_applies_color(self):
         output = self.root / "color.ppm"
@@ -98,39 +184,41 @@ class MescalineCliTests(unittest.TestCase):
         self.assertEqual(first.read_bytes(), second.read_bytes())
 
     def test_multiple_frames_are_numbered(self):
-        result = self.render("frames/request.ppm", frames=3, width=2, height=2)
-        self.assertEqual(result.returncode, 0, result.stderr)
         frames = self.root / "frames"
-        self.assertEqual({path.name for path in frames.iterdir()}, {"0.ppm", "1.ppm", "2.ppm"})
-        for frame in frames.iterdir():
+        frames.mkdir()
+        (frames / "unrelated.txt").write_text("keep")
+        result = self.render(frames, frames=3, width=2, height=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            {path.name for path in frames.iterdir()},
+            {"frame-000000.ppm", "frame-000001.ppm", "frame-000002.ppm", "unrelated.txt"},
+        )
+        for frame in frames.glob("*.ppm"):
             self.assertEqual(self.read_ppm(frame)[:2], (2, 2))
 
     def test_reports_output_open_failure(self):
-        (self.root / "blocked").mkdir()
-        result = self.render("blocked")
-        self.assertNotEqual(result.returncode, 0)
+        (self.root / "blocked").write_text("not a directory")
+        result = self.render("blocked/image.ppm")
+        self.assertEqual(result.returncode, 3)
 
     def test_help_succeeds(self):
         result = self.run_cli("--help")
         self.assertEqual(result.returncode, 0)
         self.assertIn("Usage:", result.stdout)
         self.assertIn("--output", result.stdout)
-        self.assertIn("--algo", result.stdout)
+        self.assertIn("--algorithm", result.stdout)
         self.assertEqual(result.stderr, "")
 
-    @unittest.expectedFailure
     def test_rejects_unknown_algorithm(self):
         result = self.render("unknown.ppm", "not-an-algorithm", width=2, height=2)
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 2)
 
-    @unittest.expectedFailure
     def test_rejects_malformed_dimension(self):
         result = self.run_cli(
-            "--output=image.ppm", "--algo=checkerboard", "--horizontal=invalid"
+            "--output=image.ppm", "--algorithm=checkerboard", "--width=invalid"
         )
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 2)
 
-    @unittest.expectedFailure
     def test_non_square_checkerboard_geometry(self):
         output = self.root / "non-square.ppm"
         result = self.render(output, width=12, height=11, color="204060")
@@ -145,25 +233,185 @@ class MescalineCliTests(unittest.TestCase):
         )
         self.assertEqual(pixels, expected)
 
-    @unittest.expectedFailure
     def test_creates_absolute_output_parents(self):
         output = self.root / "nested" / "path" / "image.ppm"
         result = self.render(output, width=2, height=2)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(output.is_file())
 
-    @unittest.expectedFailure
     def test_rejects_existing_output_without_force(self):
         output = self.root / "existing.ppm"
         output.write_bytes(b"keep me")
         result = self.render(output, width=2, height=2)
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 3)
         self.assertEqual(output.read_bytes(), b"keep me")
 
-    @unittest.expectedFailure
+        result = self.render(output, width=2, height=2, force=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.read_ppm(output)[:2], (2, 2))
+
+    def test_sequence_preflight_prevents_partial_output(self):
+        frames = self.root / "frames"
+        frames.mkdir()
+        existing = frames / "frame-000001.ppm"
+        existing.write_bytes(b"keep me")
+        result = self.render(frames, frames=3, width=2, height=2)
+        self.assertEqual(result.returncode, 3)
+        self.assertFalse((frames / "frame-000000.ppm").exists())
+        self.assertEqual(existing.read_bytes(), b"keep me")
+
+    def test_forced_sequence_rolls_back_if_publication_fails(self):
+        frames = self.root / "frames"
+        frames.mkdir()
+        original = frames / "frame-000000.ppm"
+        original.write_bytes(b"original")
+        (frames / "frame-000001.ppm").mkdir()
+        result = self.render(frames, frames=2, width=2, height=2, force=True)
+        self.assertEqual(result.returncode, 3)
+        self.assertEqual(original.read_bytes(), b"original")
+        self.assertTrue((frames / "frame-000001.ppm").is_dir())
+        self.assertFalse(list(frames.glob(".mescaline-frames-*")))
+
+    def test_rejects_ppm_animation_and_unknown_extension(self):
+        ppm = self.render("animation.ppm", frames=2)
+        self.assertEqual(ppm.returncode, 2)
+        unknown = self.render("image.png")
+        self.assertEqual(unknown.returncode, 2)
+
     def test_propagates_encoder_failure(self):
-        result = self.render("image.ppm", env={"FAKE_FFMPEG_STATUS": "7"})
-        self.assertNotEqual(result.returncode, 0)
+        result = self.render("image.gif", env={"FAKE_FFMPEG_STATUS": "7"})
+        self.assertEqual(result.returncode, 5)
+        self.assertFalse((self.root / "image.gif").exists())
+        staging = list(self.root.glob("image.gif.frames.*"))
+        self.assertEqual(len(staging), 1)
+        self.assertTrue((staging[0] / "ffmpeg.log").exists())
+        self.assertIn("frames retained", result.stderr)
+
+    def test_encodes_gif_with_explicit_arguments(self):
+        arguments = self.root / "ffmpeg-arguments.json"
+        output = self.root / "animation.gif"
+        result = self.render(
+            output,
+            "carreaux",
+            frames=3,
+            fps=24,
+            env={"FAKE_FFMPEG_ARGS": str(arguments)},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output.read_bytes(), b"GIF89a")
+        ffmpeg_arguments = json.loads(arguments.read_text())
+        self.assertEqual(ffmpeg_arguments[ffmpeg_arguments.index("-framerate") + 1], "24")
+        self.assertEqual(ffmpeg_arguments[ffmpeg_arguments.index("-frames:v") + 1], "3")
+        self.assertFalse(list(self.root.glob("animation.gif.frames.*")))
+        self.assertFalse(list(self.root.glob("animation.gif.tmp.*")))
+
+    def test_output_path_is_not_interpreted_by_a_shell(self):
+        arguments = self.root / "arguments.json"
+        output = self.root / "danger;$(touch owned)% name.gif"
+        result = self.render(output, env={"FAKE_FFMPEG_ARGS": str(arguments)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(output.is_file())
+        self.assertFalse((self.root / "owned").exists())
+        ffmpeg_arguments = json.loads(arguments.read_text())
+        pattern = ffmpeg_arguments[ffmpeg_arguments.index("-i") + 1]
+        self.assertIn("%%", pattern)
+
+    def test_ffmpeg_paths_cannot_be_options_or_protocols(self):
+        for output in ("--not-an-option.gif", "file:not-a-protocol.gif"):
+            with self.subTest(output=output):
+                result = self.render(output)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue((self.root / output).is_file())
+
+    def test_json_progress_is_machine_readable(self):
+        result = self.run_cli(
+            "--algorithm=checkerboard",
+            "--output=frames",
+            "--width=2",
+            "--height=2",
+            "--frames=2",
+            "--progress=json",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        events = [json.loads(line)["event"] for line in result.stderr.splitlines()]
+        self.assertEqual(events, ["start", "frame", "frame", "complete"])
+        self.assertEqual(result.stdout, "")
+
+    def test_json_errors_do_not_depend_on_option_order(self):
+        for arguments in (
+            ("--progress=json", "--width=bad"),
+            ("--width=bad", "--progress=json"),
+        ):
+            with self.subTest(arguments=arguments):
+                result = self.run_cli(*arguments)
+                self.assertEqual(result.returncode, 2)
+                error = json.loads(result.stderr)
+                self.assertEqual(error["event"], "error")
+
+    def test_none_progress_is_silent(self):
+        result = self.render("image.ppm")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr, "")
+
+    def test_sigterm_cancels_encoder_and_removes_temporary_output(self):
+        command = [
+            self.executable,
+            "--algorithm=checkerboard",
+            "--output=animation.gif",
+            "--width=2",
+            "--height=2",
+            "--progress=json",
+        ]
+        env = self.env.copy()
+        env["FAKE_FFMPEG_SLEEP"] = "10"
+        started = self.root / "ffmpeg-started"
+        env["FAKE_FFMPEG_STARTED"] = str(started)
+        process = subprocess.Popen(
+            command,
+            cwd=self.root,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not started.exists() and process.poll() is None:
+            time.sleep(0.01)
+        self.assertTrue(started.exists(), "FFmpeg did not start")
+        process.send_signal(signal.SIGTERM)
+        stdout, stderr = process.communicate(timeout=5)
+        self.assertEqual(process.returncode, 128 + signal.SIGTERM, stderr)
+        self.assertEqual(stdout, "")
+        self.assertFalse((self.root / "animation.gif").exists())
+        self.assertFalse(list(self.root.glob("animation.gif.frames.*")))
+
+    def test_sigterm_cancels_render_without_publishing_sequence(self):
+        command = [
+            self.executable,
+            "--algorithm=lasagna",
+            "--output=frames",
+            "--width=5000",
+            "--height=5000",
+            "--frames=2",
+            "--progress=json",
+        ]
+        process = subprocess.Popen(
+            command,
+            cwd=self.root,
+            env=self.env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.wait_for_event(process, "start")
+        process.send_signal(signal.SIGTERM)
+        stdout, stderr = process.communicate(timeout=5)
+        self.assertEqual(process.returncode, 128 + signal.SIGTERM, stderr)
+        self.assertEqual(stdout, "")
+        frames = self.root / "frames"
+        self.assertFalse(list(frames.glob("frame-*.ppm")))
+        self.assertFalse(list(frames.glob(".mescaline-frames-*")))
 
 
 if __name__ == "__main__":

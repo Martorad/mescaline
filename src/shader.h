@@ -1,61 +1,69 @@
-#ifndef __SHADER_H__
-#define __SHADER_H__
+#ifndef MESCALINE_H
+#define MESCALINE_H
 
-#include <getopt.h>
-#include <math.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/stat.h>
-#include <time.h>
+
+#define MESCALINE_MAX_DIMENSION 100000U
+#define MESCALINE_MAX_PIXELS 100000000ULL
+#define MESCALINE_MAX_FRAMES 1000U
+#define MESCALINE_MAX_FPS 1000U
+
+typedef enum {
+  MESCALINE_OK = 0,
+  MESCALINE_INTERNAL = 1,
+  MESCALINE_USAGE = 2,
+  MESCALINE_OUTPUT = 3,
+  MESCALINE_RENDER = 4,
+  MESCALINE_ENCODER = 5,
+} mescaline_status_t;
+
+typedef enum {
+  ALGORITHM_CHECKERBOARD,
+  ALGORITHM_LASAGNA,
+  ALGORITHM_CARREAUX,
+} algorithm_t;
+
+typedef enum {
+  PROGRESS_TEXT,
+  PROGRESS_JSON,
+  PROGRESS_NONE,
+} progress_mode_t;
 
 typedef struct {
-  float r, g, b;
-} color_t;
+  uint32_t width;
+  uint32_t height;
+  algorithm_t algorithm;
+  double scale;
+  uint8_t color[3];
+} render_spec_t;
 
-static uint64_t micros() {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return (uint64_t)ts.tv_sec * 1000000 + (uint64_t)ts.tv_nsec / 1000;
-}
+typedef struct {
+  render_spec_t render;
+  const char *output;
+  uint32_t frames;
+  uint32_t fps;
+  progress_mode_t progress;
+  bool force;
+} mescaline_options_t;
 
-static void pixel(uint8_t r, uint8_t g, uint8_t b, FILE *f) {
-  fputc(r, f);
-  fputc(g, f);
-  fputc(b, f);
-}
+typedef struct {
+  mescaline_status_t status;
+  int system_error;
+  char message[512];
+} mescaline_error_t;
 
-static bool verify_path(const char *path) {
-  char temp[1024] = {'\0'};
-  size_t len = strlen(path);
-  strcpy(temp, path);
-
-  for (size_t i = 0; i < len; i++) {
-    if (temp[i] == '/') {
-      temp[i] = '\0';
-      struct stat st = {0};
-      if (stat(temp, &st) == -1) {
-        if (mkdir(temp, 0755) == -1) {
-          return false;
-        }
-        printf("Creating directory %s...\n", temp);
-      }
-      temp[i] = '/';
-    }
-  }
-
-  return true;
-}
-
-static size_t find_final_dir(const char *path) {
-  size_t last_index = 0;
-
-  for (size_t i = 0; i < strlen(path); i++) {
-    if (path[i] == '/') last_index = i;
-  }
-
-  return last_index + 1;
+static inline void mescaline_error_set(mescaline_error_t *error, mescaline_status_t status,
+                                       int system_error, const char *format, ...) {
+  va_list args;
+  error->status = status;
+  error->system_error = system_error;
+  va_start(args, format);
+  vsnprintf(error->message, sizeof(error->message), format, args);
+  va_end(args);
 }
 
 #endif

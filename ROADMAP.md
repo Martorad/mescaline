@@ -55,8 +55,8 @@ Initial built-in algorithms remain `checkerboard`, `lasagna`, and `carreaux`. In
 are `grayscale`, `monochrome`, `viridis`, `plasma`, `magma`, `inferno`, and `turbo`.
 
 All numeric arguments are parsed strictly. Values with trailing characters, values outside the
-supported range, impossible image sizes, and conflicting options are errors. Exact safety limits
-will be documented with the implementation.
+supported range, impossible image sizes, and conflicting options are errors. Width and height are
+limited to 100000 each, and a canvas may contain at most 100 million pixels.
 
 ### Output Behavior
 
@@ -160,16 +160,16 @@ release requirements.
 - [x] Add an AddressSanitizer and UndefinedBehaviorSanitizer development configuration.
 - [x] Establish tiny deterministic checks without relying on platform-sensitive floating-point
   equality where it is inappropriate.
-- [ ] Add focused unit tests as the rendering core is separated into testable modules.
+- [x] Add focused unit tests as the rendering core is separated into testable modules.
 
 ### 3. Safe Rendering Core
 
-- Separate argument parsing, rendering, algorithms, image writing, and encoding.
-- Correct width and height traversal.
-- Replace unchecked conversions, fixed path buffers, per-byte output, and `system()`.
-- Check allocation arithmetic and every output operation.
-- Add atomic single-file output, signal handling, stable errors, and progress modes.
-- Establish a repeatable single-thread performance benchmark.
+- [x] Separate argument parsing, rendering, algorithms, image writing, encoding, and progress.
+- [x] Correct width and height traversal.
+- [x] Replace unchecked conversions, fixed path buffers, per-byte output, and `system()`.
+- [x] Check allocation arithmetic and output operations.
+- [x] Add atomic output, sequence staging, signal handling, stable errors, and progress modes.
+- [x] Establish a repeatable single-thread performance benchmark.
 
 ### 4. Multithreaded Rendering
 
