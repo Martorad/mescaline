@@ -1,6 +1,7 @@
 #include "progress.h"
 
 #include "algorithms.h"
+#include "render.h"
 
 #include <string.h>
 
@@ -41,14 +42,18 @@ void progress_start(progress_t *progress, const mescaline_options_t *options, ou
   if (progress->mode == PROGRESS_NONE) return;
   if (progress->mode == PROGRESS_JSON) {
     fprintf(progress->stream,
-            "{\"version\":1,\"event\":\"start\",\"algorithm\":\"%s\",\"width\":%u,"
-            "\"height\":%u,\"frames\":%u,\"output_kind\":\"%s\"}\n",
-            algorithm_name(options->render.algorithm), options->render.width, options->render.height,
-            options->frames, kind_name(kind));
+            "{\"version\":1,\"event\":\"start\",\"algorithm\":\"%s\","
+            "\"range_mode\":\"%s\",\"width\":%u,\"height\":%u,\"frames\":%u,"
+            "\"threads\":%u,\"output_kind\":\"%s\"}\n",
+            algorithm_name(options->render.algorithm), range_mode_name(options->render.range_mode),
+            options->render.width, options->render.height, options->frames,
+            render_worker_count(&options->render), kind_name(kind));
   } else {
-    fprintf(progress->stream, "Rendering %u frame%s of %s at %ux%u...\n", options->frames,
-            options->frames == 1 ? "" : "s", algorithm_name(options->render.algorithm),
-            options->render.width, options->render.height);
+    uint32_t workers = render_worker_count(&options->render);
+    fprintf(progress->stream, "Rendering %u frame%s of %s at %ux%u using %u thread%s...\n",
+            options->frames, options->frames == 1 ? "" : "s",
+            algorithm_name(options->render.algorithm), options->render.width,
+            options->render.height, workers, workers == 1 ? "" : "s");
   }
   fflush(progress->stream);
 }

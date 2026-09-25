@@ -22,14 +22,37 @@ const char *algorithm_name(algorithm_t algorithm) {
   return "unknown";
 }
 
-static uint8_t channel(double value) {
-  if (!isfinite(value) || value <= 0.0) return 0;
-  if (value >= 255.0) return 255;
+bool range_mode_from_name(const char *name, range_mode_t *range_mode) {
+  if (strcmp(name, "wrap") == 0) *range_mode = RANGE_WRAP;
+  else if (strcmp(name, "clamp") == 0) *range_mode = RANGE_CLAMP;
+  else return false;
+  return true;
+}
+
+const char *range_mode_name(range_mode_t range_mode) {
+  switch (range_mode) {
+    case RANGE_WRAP: return "wrap";
+    case RANGE_CLAMP: return "clamp";
+  }
+  return "unknown";
+}
+
+uint8_t range_map_channel(double value, range_mode_t range_mode) {
+  if (!isfinite(value)) return 0;
+  value = trunc(value);
+  if (range_mode == RANGE_CLAMP) {
+    if (value <= 0.0) return 0;
+    if (value >= 255.0) return 255;
+    return (uint8_t)value;
+  }
+
+  value = fmod(value, 256.0);
+  if (value < 0.0) value += 256.0;
   return (uint8_t)value;
 }
 
 static void tint(uint8_t value, const uint8_t color[3], uint8_t *pixel) {
-  for (size_t i = 0; i < 3; i++) pixel[i] = (uint8_t)((value * color[i] + 127U) / 255U);
+  for (size_t i = 0; i < 3; i++) pixel[i] = (uint8_t)(value * color[i] / 255U);
 }
 
 void algorithm_render_row(const render_spec_t *spec, uint32_t frame, uint32_t y, uint8_t *row) {
@@ -46,13 +69,16 @@ void algorithm_render_row(const render_spec_t *spec, uint32_t frame, uint32_t y,
         value = ((x / 10 + (y / 10) % 2) % 2 == 0) ? 255 : 0;
         break;
       case ALGORITHM_LASAGNA:
-        value = channel((cos(x_norm * 2.0 + y_norm) + tan(y_norm * 1.45)) * 128.0 + 128.0);
+        value = range_map_channel(
+            (cos(x_norm * 2.0 + y_norm) + tan(y_norm * 1.45)) * 128.0 + 128.0,
+            spec->range_mode);
         break;
       case ALGORITHM_CARREAUX:
-        value = channel(tan(y_norm) * cos(x_norm + PI / 2.0 + delta) /
-                            sin(x_norm + PI / 2.0) *
-                            128.0 +
-                        128.0);
+        value = range_map_channel(tan(y_norm) * cos(x_norm + PI / 2.0 + delta) /
+                                          sin(x_norm + PI / 2.0) *
+                                          128.0 +
+                                      128.0,
+                                  spec->range_mode);
         break;
     }
 

@@ -7,6 +7,8 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
+find_package(OpenMP REQUIRED COMPONENTS C)
+
 add_executable(mescaline
   src/algorithms.c
   src/cli.c
@@ -18,9 +20,13 @@ add_executable(mescaline
 )
 target_compile_definitions(mescaline PRIVATE _POSIX_C_SOURCE=200809L)
 target_compile_options(mescaline PRIVATE -Wall -Wextra -Wpedantic)
-target_link_libraries(mescaline PRIVATE m)
+target_link_libraries(mescaline PRIVATE m OpenMP::OpenMP_C)
 
 option(MESCALINE_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(MESCALINE_ENABLE_THREAD_SANITIZER "Enable ThreadSanitizer" OFF)
+if(MESCALINE_ENABLE_SANITIZERS AND MESCALINE_ENABLE_THREAD_SANITIZER)
+  message(FATAL_ERROR "AddressSanitizer and ThreadSanitizer cannot be enabled together")
+endif()
 include(CTest)
 if(BUILD_TESTING)
   find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
@@ -32,10 +38,29 @@ if(BUILD_TESTING)
   target_include_directories(mescaline_render_test PRIVATE src)
   target_compile_definitions(mescaline_render_test PRIVATE _POSIX_C_SOURCE=200809L)
   target_compile_options(mescaline_render_test PRIVATE -Wall -Wextra -Wpedantic)
-  target_link_libraries(mescaline_render_test PRIVATE m)
+  target_link_libraries(mescaline_render_test PRIVATE m OpenMP::OpenMP_C)
   add_test(NAME render COMMAND mescaline_render_test)
 endif()
 
+
+if(MESCALINE_ENABLE_THREAD_SANITIZER)
+  if(NOT CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    message(FATAL_ERROR "ThreadSanitizer requires GCC or Clang")
+  endif()
+  if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    message(WARNING "GCC ThreadSanitizer does not understand libgomp synchronization and may "
+                    "report false races or fail at runtime; use a TSan-aware OpenMP runtime")
+  endif()
+
+  set(thread_sanitized_targets mescaline)
+  if(BUILD_TESTING)
+    list(APPEND thread_sanitized_targets mescaline_render_test)
+  endif()
+  foreach(target IN LISTS thread_sanitized_targets)
+    target_compile_options(${target} PRIVATE -O1 -fno-omit-frame-pointer -fsanitize=thread)
+    target_link_options(${target} PRIVATE -fsanitize=thread)
+  endforeach()
+endif()
 if(MESCALINE_ENABLE_SANITIZERS)
   if(NOT CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     message(FATAL_ERROR "Sanitizers require GCC or Clang")

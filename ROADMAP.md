@@ -44,8 +44,9 @@ are mutually exclusive.
 | `--fps N` | `30` | GIF playback frame rate |
 | `--palette NAME` | `grayscale` | Palette for scalar output |
 | `--color RRGGBB` | `ffffff` | Target color for the `monochrome` palette |
+| `--range-mode MODE` | `wrap` | Map out-of-range values with `wrap` or `clamp` |
 | `--seed N` | `0` | Seed for deterministic randomness |
-| `--threads N` | `0` | Worker count; zero selects the available CPU count |
+| `--threads N` | `0` | Worker count from 0 to 1024; zero selects available CPUs |
 | `--progress MODE` | `text` | `text`, `json`, or `none` |
 | `--force` | Off | Permit replacing output files created by this job |
 | `--help` | | Print usage and exit |
@@ -127,9 +128,10 @@ constants `pi` and `e`; and functions `sin`, `cos`, `tan`, `sqrt`, `log`, `abs`,
 Each `random()` occurrence produces a deterministic value in `[0, 1]` based on the seed, pixel,
 frame, and expression location. It does not depend on evaluation or thread order.
 
-A scalar expression is clamped to `[0, 1]` and mapped through the selected palette. RGB
-expressions are independently clamped to `[0, 1]` and do not use a palette. Non-finite results
-map to zero and produce a summary warning rather than undefined behavior.
+Expression channels are scaled to byte values and processed by the selected range mode before
+palette or RGB output. `wrap` is the default and applies defined modulo-256 wrapping; `clamp`
+saturates to the byte range. Non-finite results map to zero and produce a summary warning rather
+than undefined behavior.
 
 ## GUI Contract
 
@@ -141,9 +143,9 @@ cancellation, and show complete errors. Preview renders are reduced-size CLI job
 logic is never reimplemented in QML or linked into the GUI.
 
 The first GUI release includes built-in and expression modes, output settings, palettes, color,
-dimensions, scale, animation settings, seed, thread count, preview, progress, cancellation, and
-opening the completed output. Keyboard access, labels, scalable layout, and light/dark themes are
-release requirements.
+dimensions, scale, range mode, animation settings, seed, thread count, preview, progress,
+cancellation, and opening the completed output. Keyboard access, labels, scalable layout, and
+light/dark themes are release requirements.
 
 ## Milestones
 
@@ -173,11 +175,12 @@ release requirements.
 
 ### 4. Multithreaded Rendering
 
-- Render contiguous row partitions with static OpenMP scheduling.
-- Add automatic and explicit worker counts.
-- Preserve byte-for-byte output across thread counts.
-- Measure scaling by algorithm and image size.
-- Add ThreadSanitizer coverage.
+- [x] Render contiguous row partitions with static OpenMP scheduling.
+- [x] Add automatic and explicit worker counts.
+- [x] Preserve byte-for-byte output across thread counts.
+- [x] Measure scaling by algorithm, thread count, and image size.
+- [x] Add a ThreadSanitizer build configuration. Runtime verification requires a TSan-aware
+  OpenMP runtime; the local GCC/libgomp combination reports false races.
 
 ### 5. Custom Expressions
 

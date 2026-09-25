@@ -11,6 +11,7 @@
 #define MESCALINE_MAX_PIXELS 100000000ULL
 #define MESCALINE_MAX_FRAMES 1000U
 #define MESCALINE_MAX_FPS 1000U
+#define MESCALINE_MAX_THREADS 1024U
 
 typedef enum {
   MESCALINE_OK = 0,
@@ -28,6 +29,11 @@ typedef enum {
 } algorithm_t;
 
 typedef enum {
+  RANGE_WRAP,
+  RANGE_CLAMP,
+} range_mode_t;
+
+typedef enum {
   PROGRESS_TEXT,
   PROGRESS_JSON,
   PROGRESS_NONE,
@@ -37,6 +43,8 @@ typedef struct {
   uint32_t width;
   uint32_t height;
   algorithm_t algorithm;
+  range_mode_t range_mode;
+  uint32_t threads;
   double scale;
   uint8_t color[3];
 } render_spec_t;

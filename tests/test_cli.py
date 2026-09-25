@@ -97,6 +97,7 @@ raise SystemExit(status)
             "--progress=none",
         ]
         for name, value in options.items():
+            name = name.replace("_", "-")
             args.append(f"--{name}" if value is True else f"--{name}={value}")
         return self.run_cli(*args, env=env)
 
@@ -132,6 +133,9 @@ raise SystemExit(status)
             "--scale=nan",
             "--scale=inf",
             "--scale=1x",
+            "--threads=-1",
+            "--threads=invalid",
+            "--threads=1025",
         )
         for argument in cases:
             with self.subTest(argument=argument):
@@ -161,6 +165,12 @@ raise SystemExit(status)
                 )
                 self.assertEqual(result.returncode, 2)
 
+    def test_rejects_bad_range_mode(self):
+        result = self.run_cli(
+            "--algorithm=carreaux", "--output=image.ppm", "--range-mode=invalid"
+        )
+        self.assertEqual(result.returncode, 2)
+
     def test_renders_every_named_algorithm(self):
         for algorithm in ("checkerboard", "lasagna", "carreaux"):
             with self.subTest(algorithm=algorithm):
@@ -182,6 +192,67 @@ raise SystemExit(status)
         self.assertEqual(self.render(first, "lasagna").returncode, 0)
         self.assertEqual(self.render(second, "lasagna").returncode, 0)
         self.assertEqual(first.read_bytes(), second.read_bytes())
+
+    def test_thread_counts_produce_identical_output(self):
+        for algorithm in ("checkerboard", "lasagna", "carreaux"):
+            for range_mode in ("wrap", "clamp"):
+                with self.subTest(algorithm=algorithm, range_mode=range_mode):
+                    single = self.root / f"{algorithm}-{range_mode}-single.ppm"
+                    multiple = self.root / f"{algorithm}-{range_mode}-multiple.ppm"
+                    automatic = self.root / f"{algorithm}-{range_mode}-automatic.ppm"
+                    self.assertEqual(
+                        self.render(
+                            single,
+                            algorithm,
+                            width=31,
+                            height=17,
+                            range_mode=range_mode,
+                            threads=1,
+                        ).returncode,
+                        0,
+                    )
+                    self.assertEqual(
+                        self.render(
+                            multiple,
+                            algorithm,
+                            width=31,
+                            height=17,
+                            range_mode=range_mode,
+                            threads=4,
+                        ).returncode,
+                        0,
+                    )
+                    self.assertEqual(
+                        self.render(
+                            automatic,
+                            algorithm,
+                            width=31,
+                            height=17,
+                            range_mode=range_mode,
+                            threads=0,
+                        ).returncode,
+                        0,
+                    )
+                    self.assertEqual(single.read_bytes(), multiple.read_bytes())
+                    self.assertEqual(single.read_bytes(), automatic.read_bytes())
+
+    def test_legacy_wrapping_is_default_and_clamping_is_optional(self):
+        for algorithm in ("lasagna", "carreaux"):
+            with self.subTest(algorithm=algorithm):
+                default = self.root / f"{algorithm}-default.ppm"
+                wrapped = self.root / f"{algorithm}-wrapped.ppm"
+                clamped = self.root / f"{algorithm}-clamped.ppm"
+                self.assertEqual(self.render(default, algorithm, width=16, height=12).returncode, 0)
+                self.assertEqual(
+                    self.render(wrapped, algorithm, width=16, height=12, range_mode="wrap").returncode,
+                    0,
+                )
+                self.assertEqual(
+                    self.render(clamped, algorithm, width=16, height=12, range_mode="clamp").returncode,
+                    0,
+                )
+                self.assertEqual(default.read_bytes(), wrapped.read_bytes())
+                self.assertNotEqual(default.read_bytes(), clamped.read_bytes())
 
     def test_multiple_frames_are_numbered(self):
         frames = self.root / "frames"
@@ -207,6 +278,8 @@ raise SystemExit(status)
         self.assertIn("Usage:", result.stdout)
         self.assertIn("--output", result.stdout)
         self.assertIn("--algorithm", result.stdout)
+        self.assertIn("--range-mode", result.stdout)
+        self.assertIn("--threads", result.stdout)
         self.assertEqual(result.stderr, "")
 
     def test_rejects_unknown_algorithm(self):
@@ -333,8 +406,11 @@ raise SystemExit(status)
             "--progress=json",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        events = [json.loads(line)["event"] for line in result.stderr.splitlines()]
+        records = [json.loads(line) for line in result.stderr.splitlines()]
+        events = [record["event"] for record in records]
         self.assertEqual(events, ["start", "frame", "frame", "complete"])
+        self.assertEqual(records[0]["range_mode"], "wrap")
+        self.assertEqual(records[0]["threads"], 2)
         self.assertEqual(result.stdout, "")
 
     def test_json_errors_do_not_depend_on_option_order(self):

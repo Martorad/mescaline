@@ -15,6 +15,8 @@ typedef enum {
   OPTION_HEIGHT,
   OPTION_SCALE,
   OPTION_COLOR,
+  OPTION_RANGE_MODE,
+  OPTION_THREADS,
   OPTION_FRAMES,
   OPTION_FPS,
   OPTION_PROGRESS,
@@ -30,10 +32,11 @@ typedef struct {
 
 static const option_definition_t OPTION_DEFINITIONS[] = {
     {"algorithm", OPTION_ALGORITHM, true}, {"output", OPTION_OUTPUT, true},
-    {"width", OPTION_WIDTH, true},         {"height", OPTION_HEIGHT, true},
-    {"scale", OPTION_SCALE, true},         {"color", OPTION_COLOR, true},
-    {"frames", OPTION_FRAMES, true},       {"fps", OPTION_FPS, true},
-    {"progress", OPTION_PROGRESS, true},   {"force", OPTION_FORCE, false},
+    {"width", OPTION_WIDTH, true},           {"height", OPTION_HEIGHT, true},
+    {"scale", OPTION_SCALE, true},           {"color", OPTION_COLOR, true},
+    {"range-mode", OPTION_RANGE_MODE, true}, {"threads", OPTION_THREADS, true},
+    {"frames", OPTION_FRAMES, true},         {"fps", OPTION_FPS, true},
+    {"progress", OPTION_PROGRESS, true},     {"force", OPTION_FORCE, false},
     {"help", OPTION_HELP, false},
 };
 
@@ -50,6 +53,8 @@ void cli_print_usage(FILE *stream, const char *program) {
           "  --height N          Canvas height (default: 1000)\n"
           "  --scale N           Algorithm scale (default: 1)\n"
           "  --color RRGGBB      RGB tint (default: ffffff)\n"
+          "  --range-mode MODE   wrap or clamp (default: wrap)\n"
+          "  --threads N         Worker count from 0 to 1024; 0 is automatic (default: 0)\n"
           "  --frames N          Frame count from 1 to 1000 (default: 1)\n"
           "  --fps N             GIF frame rate from 1 to 1000 (default: 30)\n"
           "  --progress MODE     text, json, or none (default: text)\n"
@@ -126,6 +131,8 @@ cli_result_t cli_parse(int argc, char *const argv[], mescaline_options_t *option
       .render = {.width = 1000,
                  .height = 1000,
                  .algorithm = ALGORITHM_CHECKERBOARD,
+                 .range_mode = RANGE_WRAP,
+                 .threads = 0,
                  .scale = 1.0,
                  .color = {255, 255, 255}},
       .frames = 1,
@@ -211,6 +218,19 @@ cli_result_t cli_parse(int argc, char *const argv[], mescaline_options_t *option
         if (!parse_color(value, options->render.color)) {
           mescaline_error_set(error, MESCALINE_USAGE, 0,
                               "Invalid color '%s'; expected exactly six hexadecimal digits", value);
+          return CLI_ERROR;
+        }
+        break;
+      case OPTION_RANGE_MODE:
+        if (!range_mode_from_name(value, &options->render.range_mode)) {
+          mescaline_error_set(error, MESCALINE_USAGE, 0,
+                              "Invalid range mode '%s'; expected wrap or clamp", value);
+          return CLI_ERROR;
+        }
+        break;
+      case OPTION_THREADS:
+        if (!parse_uint(value, 0, MESCALINE_MAX_THREADS, &options->render.threads)) {
+          mescaline_error_set(error, MESCALINE_USAGE, 0, "Invalid thread count '%s'", value);
           return CLI_ERROR;
         }
         break;

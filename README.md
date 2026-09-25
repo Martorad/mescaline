@@ -16,7 +16,7 @@ Breaking changes are still allowed until the CLI stabilization milestone.
 ## Requirements
 
 - Linux
-- A C compiler with C23 support
+- A C compiler with C23 and OpenMP support
 - CMake 3.21 or newer
 - FFmpeg for GIF output
 - Python 3.8 or newer for tests
@@ -62,6 +62,7 @@ Exactly one built-in algorithm and an output path are required:
   --width=1000 \
   --height=1000 \
   --scale=2 \
+  --range-mode=wrap \
   --color=ff8000
 ```
 
@@ -73,6 +74,8 @@ Exactly one built-in algorithm and an output path are required:
 | `--height` | No | `1000` | Canvas height from 1 to 100000 |
 | `--scale` | No | `1` | Positive algorithm scale up to 1000000 |
 | `--color` | No | `ffffff` | RGB tint in hexadecimal |
+| `--range-mode` | No | `wrap` | Map out-of-range values with `wrap` or `clamp` |
+| `--threads` | No | `0` | Worker count; zero selects available CPUs |
 | `--frames` | No | `1` | Frame count from 1 to 1000 |
 | `--fps` | No | `30` | GIF frame rate from 1 to 1000 |
 | `--progress` | No | `text` | `text`, `json`, or `none` |
@@ -81,6 +84,13 @@ Exactly one built-in algorithm and an output path are required:
 
 The canvas is limited to 100 million pixels so invalid jobs fail before attempting an excessive
 allocation.
+
+`wrap` safely reproduces the original Lasagna and Carreaux look by truncating and wrapping values
+modulo 256. `clamp` saturates values to the `0..255` channel range instead.
+
+Rendering uses static OpenMP row partitioning. `--threads=0` selects the available processor
+count, capped by the canvas height and the 1024-worker safety limit. Explicit thread counts produce
+byte-identical output; use `--threads=1` when measuring the single-thread baseline.
 
 ## Output
 
@@ -108,14 +118,15 @@ Standard output remains unused except for `--help`.
 
 ## Benchmark
 
-Run the repeatable end-to-end single-thread benchmark with:
+Run the repeatable end-to-end scaling benchmark with:
 
 ```sh
 python3 benchmarks/render.py build/mescaline
 ```
 
-It reports median megapixels per second for every built-in algorithm. Rendering, atomic PPM
-writing, and synchronization are included in the measurement.
+It compares one thread with automatic CPU selection and reports median megapixels per second for
+every built-in algorithm. Rendering, atomic PPM writing, and synchronization are included in the
+measurement. Supply explicit counts with `--threads 1 2 4 8`.
 
 ## License
 

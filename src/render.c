@@ -2,6 +2,7 @@
 
 #include "algorithms.h"
 
+#include <omp.h>
 #include <stdlib.h>
 
 bool image_create(image_t *image, uint32_t width, uint32_t height, mescaline_error_t *error) {
@@ -30,6 +31,16 @@ void image_destroy(image_t *image) {
   *image = (image_t){0};
 }
 
+uint32_t render_worker_count(const render_spec_t *spec) {
+  int processors = omp_get_num_procs();
+  uint32_t workers = spec->threads == 0 && processors > 0 ? (uint32_t)processors : spec->threads;
+  if (workers == 0) workers = 1;
+  if (workers > MESCALINE_MAX_THREADS) workers = MESCALINE_MAX_THREADS;
+  int thread_limit = omp_get_thread_limit();
+  if (thread_limit > 0 && workers > (uint32_t)thread_limit) workers = (uint32_t)thread_limit;
+  return workers < spec->height ? workers : spec->height;
+}
+
 render_result_t render_frame(const render_spec_t *spec, uint32_t frame, image_t *image,
                              const volatile sig_atomic_t *cancel_signal,
                              mescaline_error_t *error) {
@@ -38,9 +49,14 @@ render_result_t render_frame(const render_spec_t *spec, uint32_t frame, image_t 
     return RENDER_FAILED;
   }
 
-  for (uint32_t y = 0; y < spec->height; y++) {
-    if (*cancel_signal != 0) return RENDER_CANCELLED;
-    algorithm_render_row(spec, frame, y, image->pixels + (size_t)y * spec->width * 3);
+  int workers = (int)render_worker_count(spec);
+  omp_set_dynamic(0);
+#pragma omp parallel for schedule(static) num_threads(workers)
+  for (int64_t y = 0; y < spec->height; y++) {
+    if (*cancel_signal == 0) {
+      algorithm_render_row(spec, frame, (uint32_t)y,
+                           image->pixels + (size_t)y * spec->width * 3);
+    }
   }
-  return RENDER_OK;
+  return *cancel_signal == 0 ? RENDER_OK : RENDER_CANCELLED;
 }

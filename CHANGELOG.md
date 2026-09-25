@@ -24,6 +24,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - Signal-aware cancellation and documented exit statuses.
 - Single-thread rendering benchmark.
 - Focused rendering unit tests and expanded end-to-end CLI coverage.
+- Configurable `wrap` and `clamp` range modes, with legacy wrapping restored as the default.
+- OpenMP row-parallel rendering with automatic or explicit worker counts.
+- Thread-count determinism tests, scaling benchmarks, and a ThreadSanitizer build configuration.
+
+### Known limitations
+
+- GCC ThreadSanitizer does not understand libgomp synchronization; the TSan build requires a
+  compatible OpenMP runtime for meaningful results.
 
 ### Changed
 
