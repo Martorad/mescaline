@@ -29,6 +29,8 @@ typedef enum {
   OPTION_PROGRESS,
   OPTION_FORCE,
   OPTION_HELP,
+  OPTION_VERSION,
+  OPTION_PREVIEW_STREAM,
 } option_id_t;
 
 typedef struct {
@@ -47,7 +49,8 @@ static const option_definition_t OPTION_DEFINITIONS[] = {
     {"seed", OPTION_SEED, true},                 {"threads", OPTION_THREADS, true},
     {"frames", OPTION_FRAMES, true},             {"fps", OPTION_FPS, true},
     {"progress", OPTION_PROGRESS, true},         {"force", OPTION_FORCE, false},
-    {"help", OPTION_HELP, false},
+    {"help", OPTION_HELP, false},               {"version", OPTION_VERSION, false},
+    {"preview-stream", OPTION_PREVIEW_STREAM, false},
 };
 
 void cli_print_usage(FILE *stream, const char *program) {
@@ -76,7 +79,9 @@ void cli_print_usage(FILE *stream, const char *program) {
           "  --fps N             GIF frame rate from 1 to 1000 (default: 30)\n"
           "  --progress MODE     text, json, or none (default: text)\n"
           "  --force             Replace existing target files\n"
-          "  --help              Show this help and exit\n",
+          "  --help              Show this help and exit\n"
+          "  --version           Show the program version and exit\n"
+          "  --preview-stream    Stream completed rows to stdout (single-frame PPM, JSON progress)\n",
           program);
 }
 
@@ -304,10 +309,13 @@ cli_result_t cli_parse(int argc, char *const argv[], mescaline_options_t *option
         break;
       case OPTION_FORCE: options->force = true; break;
       case OPTION_HELP: break;
+      case OPTION_VERSION: break;
+      case OPTION_PREVIEW_STREAM: options->preview_stream = true; break;
     }
   }
 
   if ((seen & (1U << OPTION_HELP)) != 0) return CLI_HELP;
+  if ((seen & (1U << OPTION_VERSION)) != 0) return CLI_VERSION;
   bool has_algorithm = (seen & (1U << OPTION_ALGORITHM)) != 0;
   bool has_scalar = (seen & (1U << OPTION_EXPRESSION)) != 0;
   unsigned rgb_count = ((seen & (1U << OPTION_EXPRESSION_R)) != 0) +
@@ -327,6 +335,11 @@ cli_result_t cli_parse(int argc, char *const argv[], mescaline_options_t *option
   }
   if (options->output == NULL) {
     mescaline_error_set(error, MESCALINE_USAGE, 0, "--output is required");
+    return CLI_ERROR;
+  }
+  if (options->preview_stream && (options->frames != 1 || options->progress != PROGRESS_JSON)) {
+    mescaline_error_set(error, MESCALINE_USAGE, 0,
+                        "--preview-stream requires --frames=1 and --progress=json");
     return CLI_ERROR;
   }
   if ((uint64_t)options->render.width * options->render.height > MESCALINE_MAX_PIXELS) {

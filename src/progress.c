@@ -6,20 +6,61 @@
 
 #include <string.h>
 
+static size_t utf8_length(const unsigned char *value) {
+  if (value[0] >= 0xc2 && value[0] <= 0xdf && value[1] >= 0x80 && value[1] <= 0xbf) return 2;
+  if (value[0] == 0xe0 && value[1] >= 0xa0 && value[1] <= 0xbf && value[2] >= 0x80 &&
+      value[2] <= 0xbf) {
+    return 3;
+  }
+  if (((value[0] >= 0xe1 && value[0] <= 0xec) || (value[0] >= 0xee && value[0] <= 0xef)) &&
+      value[1] >= 0x80 && value[1] <= 0xbf && value[2] >= 0x80 && value[2] <= 0xbf) {
+    return 3;
+  }
+  if (value[0] == 0xed && value[1] >= 0x80 && value[1] <= 0x9f && value[2] >= 0x80 &&
+      value[2] <= 0xbf) {
+    return 3;
+  }
+  if (value[0] == 0xf0 && value[1] >= 0x90 && value[1] <= 0xbf && value[2] >= 0x80 &&
+      value[2] <= 0xbf && value[3] >= 0x80 && value[3] <= 0xbf) {
+    return 4;
+  }
+  if (value[0] >= 0xf1 && value[0] <= 0xf3 && value[1] >= 0x80 && value[1] <= 0xbf &&
+      value[2] >= 0x80 && value[2] <= 0xbf && value[3] >= 0x80 && value[3] <= 0xbf) {
+    return 4;
+  }
+  if (value[0] == 0xf4 && value[1] >= 0x80 && value[1] <= 0x8f && value[2] >= 0x80 &&
+      value[2] <= 0xbf && value[3] >= 0x80 && value[3] <= 0xbf) {
+    return 4;
+  }
+  return 0;
+}
+
 static void json_string(FILE *stream, const char *value) {
   fputc('"', stream);
-  for (const unsigned char *cursor = (const unsigned char *)value; *cursor != '\0'; cursor++) {
+  for (const unsigned char *cursor = (const unsigned char *)value; *cursor != '\0';) {
     switch (*cursor) {
-      case '"': fputs("\\\"", stream); break;
-      case '\\': fputs("\\\\", stream); break;
-      case '\b': fputs("\\b", stream); break;
-      case '\f': fputs("\\f", stream); break;
-      case '\n': fputs("\\n", stream); break;
-      case '\r': fputs("\\r", stream); break;
-      case '\t': fputs("\\t", stream); break;
+      case '"': fputs("\\\"", stream); cursor++; break;
+      case '\\': fputs("\\\\", stream); cursor++; break;
+      case '\b': fputs("\\b", stream); cursor++; break;
+      case '\f': fputs("\\f", stream); cursor++; break;
+      case '\n': fputs("\\n", stream); cursor++; break;
+      case '\r': fputs("\\r", stream); cursor++; break;
+      case '\t': fputs("\\t", stream); cursor++; break;
       default:
-        if (*cursor < 0x20) fprintf(stream, "\\u%04x", *cursor);
-        else fputc(*cursor, stream);
+        if (*cursor < 0x20) {
+          fprintf(stream, "\\u%04x", *cursor++);
+        } else if (*cursor < 0x80) {
+          fputc(*cursor++, stream);
+        } else {
+          size_t length = utf8_length(cursor);
+          if (length == 0) {
+            fputs("\\ufffd", stream);
+            cursor++;
+          } else {
+            fwrite(cursor, 1, length, stream);
+            cursor += length;
+          }
+        }
     }
   }
   fputc('"', stream);

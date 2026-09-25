@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(mescaline C)
+project(mescaline VERSION 0.4.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 23)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -20,7 +20,10 @@ add_executable(mescaline
   src/render.c
   src/shader.c
 )
-target_compile_definitions(mescaline PRIVATE _POSIX_C_SOURCE=200809L)
+target_compile_definitions(mescaline PRIVATE
+  _POSIX_C_SOURCE=200809L
+  MESCALINE_VERSION="${PROJECT_VERSION}"
+)
 target_compile_options(mescaline PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(mescaline PRIVATE m OpenMP::OpenMP_C)
 
@@ -30,6 +33,10 @@ if(MESCALINE_ENABLE_SANITIZERS AND MESCALINE_ENABLE_THREAD_SANITIZER)
   message(FATAL_ERROR "AddressSanitizer and ThreadSanitizer cannot be enabled together")
 endif()
 include(CTest)
+option(MESCALINE_BUILD_GUI "Build the optional Qt 6 desktop frontend" OFF)
+if(MESCALINE_BUILD_GUI)
+  add_subdirectory(gui)
+endif()
 if(BUILD_TESTING)
   find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
   add_test(NAME cli COMMAND "${Python3_EXECUTABLE}"

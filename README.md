@@ -3,15 +3,15 @@
 Mescaline is a command-line generative graphics renderer written in C. It produces binary PPM
 images, frame sequences, and GIF animations from built-in algorithms or custom expressions.
 
-The CLI is the primary product. A separate Qt/QML desktop frontend is planned after the CLI
-interface is safe, tested, and stable. See [ROADMAP.md](ROADMAP.md) for the draft product
-contract and implementation order.
+The CLI is the primary product. A separate Qt/QML desktop frontend is available. See
+[CLI.md](CLI.md) for the current CLI v1 contract and [ROADMAP.md](ROADMAP.md) for implementation
+order.
 
 ## Status
 
-Mescaline is pre-alpha. Built-in and custom-expression rendering are implemented and tested, but
-the stable interface declaration and desktop GUI remain in development. Breaking changes are
-still allowed until the CLI stabilization milestone.
+Mescaline is at version 0.4.0, an early release; 1.0 remains future work. Built-in and
+custom-expression rendering are implemented and tested, and the optional Qt desktop frontend is
+available.
 
 ## Requirements
 
@@ -20,6 +20,7 @@ still allowed until the CLI stabilization milestone.
 - CMake 3.21 or newer
 - FFmpeg for GIF output
 - Python 3.8 or newer for tests
+- Qt 6.4 Quick, Quick Controls 2, Qt Quick Templates, and Qt Test for the optional GUI
 
 ## Build
 
@@ -30,11 +31,52 @@ cmake --build build --parallel
 
 The executable is written to `build/mescaline`.
 
+To build the separate Qt Quick / Material frontend:
+
+```sh
+sudo apt install qt6-base-dev qt6-declarative-dev qml6-module-qtqml \
+  qml6-module-qtqml-workerscript qml6-module-qtquick qml6-module-qtquick-controls \
+  qml6-module-qtquick-templates qml6-module-qtquick-layouts qml6-module-qtquick-window
+cmake -S . -B build-gui -DMESCALINE_BUILD_GUI=ON
+cmake --build build-gui --parallel
+ctest --test-dir build-gui --output-on-failure
+./build-gui/gui/mescaline-gui
+```
+
+The GUI locates the CLI next to itself or one directory above; use
+`mescaline-gui --cli /path/to/mescaline` if needed. The Settings button opens a centered dialog
+with categories on the right. Appearance offers System (default), Light, and Dark themes; System
+tracks palette changes. Performance controls worker threads, reduced-resolution previews, and a
+scale from 1–100%. The Expressions button beside Settings opens a scalar-expression cheat sheet
+covering coordinates, functions, animation, randomness, and examples.
+The default window is 1700 pixels wide, with render controls on the left and an export preview on
+the right. Preview renders the first frame at full canvas resolution by default. The Live checkbox
+automatically rerenders after edits and shows completed rows as they arrive from multiple CLI
+workers; the regular Preview button also works without Live. Render uses the chosen output path
+and full settings. Both launch the CLI as a separate process and report its JSON progress; Cancel
+sends termination to that process.
+
+Preview shows only the first animation frame. To see an animation, render to a `.gif` and use
+Open result with an external viewer, or render a PPM frame sequence. GIF encoding temporarily
+stores PPM frames; they are removed on success but retained with the FFmpeg log if encoding fails.
+
+Live mode still renders and saves the preview at the chosen canvas resolution; its on-screen
+stream samples large images to at most 1024 pixels on the longest side so display updates do not
+stall the render. Use Performance → Reduce preview resolution to lower the actual render workload.
+
+Numeric fractions entered with commas are immediately displayed with periods, regardless of the
+desktop locale. This includes expression inputs: `0,5*x` becomes `0.5*x`. Use `;` between arguments
+when entering decimal commas in two-argument functions, for example `min(0,5; 1,5)` becomes
+`min(0.5; 1.5)`. Output paths and hexadecimal colors are not numeric fields and remain unchanged.
+
 ## Test
 
 ```sh
 ctest --test-dir build --output-on-failure
 ```
+
+Building with `MESCALINE_BUILD_GUI=ON` adds GUI process and offscreen QML smoke tests. A desktop
+session is needed to inspect the visual layout and system theme integration interactively.
 
 The suite uses a temporary fake FFmpeg executable and does not leave rendered files in the
 repository. Run it directly for individual test names and detailed output:
@@ -85,6 +127,7 @@ Exactly one rendering mode and an output path are required:
 | `--progress` | No | `text` | `text`, `json`, or `none` |
 | `--force` | No | Off | Replace existing target files |
 | `--help` | No | | Print usage and exit |
+| `--version` | No | | Print `mescaline 0.4.0` and exit |
 
 The canvas is limited to 100 million pixels so invalid jobs fail before attempting an excessive
 allocation.
@@ -125,7 +168,8 @@ The language supports:
 - Variables: `px`, `py`, `x`, `y`, `frame`, `t`, `width`, `height`, `seed`
 - Constants: `pi`, `e`
 - Operators: `+`, `-`, `*`, `/`, `%`, `^`, parentheses, and unary signs
-- Functions: `sin`, `cos`, `tan`, `sqrt`, `log`, `abs`, `min`, `max`, `pow`, `random`
+- Functions: `sin`, `cos`, `tan`, `sqrt`, `log`, `abs`, `min`, `max`, `pow`, `random` (`min`, `max`,
+  and `pow` accept either `,` or `;` between arguments)
 
 `x` and `y` span `0..1` across the image; `t` is `frame / frames`. Expression results are
 multiplied by 255 and then processed by `--range-mode`. `random()` is deterministic for the seed,
@@ -157,7 +201,9 @@ JSON progress is emitted as one object per line on standard error:
   --progress=json
 ```
 
-Standard output remains unused except for `--help`.
+Standard output remains unused except for `--help`, `--version`, and the binary
+`--preview-stream` option. The complete stream format, versioned JSON events, and change policy
+are documented in [CLI.md](CLI.md).
 
 ## Benchmark
 
@@ -173,5 +219,4 @@ measurement. Supply explicit counts with `--threads 1 2 4 8`.
 
 ## License
 
-GPL-3.0 has been selected for the project. The license file will be added before the first
-release.
+Licensed under GPL-3.0. See [LICENSE](LICENSE).

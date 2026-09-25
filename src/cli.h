@@ -6,6 +6,7 @@
 typedef enum {
   CLI_RUN,
   CLI_HELP,
+  CLI_VERSION,
   CLI_ERROR,
 } cli_result_t;
 

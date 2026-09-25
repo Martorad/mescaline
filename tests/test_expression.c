@@ -35,6 +35,7 @@ int main(void) {
   assert(evaluate("-2^2", &context) == -4.0);
   assert(evaluate("10 % 4", &context) == 2.0);
   assert(evaluate("min(8, 3) + max(2, 5) + pow(2, 3)", &context) == 16.0);
+  assert(evaluate("min(0.5; 1.5) + max(2; 5)", &context) == 5.5);
   assert(fabs(evaluate("sin(pi / 2) + cos(0) + abs(-2)", &context) - 4.0) < 1e-12);
   assert(fabs(evaluate("sqrt(9) + log(e) + tan(0)", &context) - 4.0) < 1e-12);
   assert(fabs(evaluate("x + y + t", &context) - 1.25) < 1e-12);

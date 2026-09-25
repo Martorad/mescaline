@@ -1,7 +1,7 @@
 # Roadmap
 
-This document defines the planned product and implementation order. The contract is a draft
-until the CLI stabilization milestone; breaking changes are currently allowed.
+This document defines the planned product and implementation order. The current CLI contract is
+maintained in [CLI.md](CLI.md); breaking changes remain allowed when they improve the product.
 
 ## Product Principles
 
@@ -12,7 +12,7 @@ until the CLI stabilization milestone; breaking changes are currently allowed.
 - Safe failure is more important than preserving incomplete output.
 - Linux is supported first while implementation choices remain portable where practical.
 
-## Draft CLI Contract
+## CLI Contract Summary
 
 Mescaline uses flat long options. Exactly one rendering mode is required:
 
@@ -87,10 +87,10 @@ Human-readable progress and diagnostics are written to standard error. Standard 
 unused so a future streaming mode can use it without ambiguity.
 
 `--progress=json` emits one JSON object per line for the GUI. Events include startup, frame
-completion, expression warnings, encoding, successful completion, cancellation, and errors. The
-event schema will be versioned and frozen before GUI implementation.
+completion, expression warnings, encoding, successful completion, cancellation, and errors. JSON
+schema v1 is documented in [CLI.md](CLI.md).
 
-Planned exit statuses are:
+Current exit statuses are:
 
 | Status | Meaning |
 | --- | --- |
@@ -141,9 +141,9 @@ than undefined behavior.
 The Linux desktop GUI will use Qt 6 Quick/QML and Qt Quick Controls Material. It lives under
 `gui/`, has its own build definition, and launches the CLI with `QProcess`.
 
-The GUI must expose every stable CLI function, consume versioned JSON progress, support
-cancellation, and show complete errors. Preview renders are reduced-size CLI jobs; rendering
-logic is never reimplemented in QML or linked into the GUI.
+The GUI must expose every current CLI function, consume versioned JSON progress, support
+cancellation, and show complete errors. Previews use full canvas resolution by default, with
+optional downscaling; rendering logic is never reimplemented in QML or linked into the GUI.
 
 The first GUI release includes built-in and expression modes, output settings, palettes, color,
 dimensions, scale, range mode, animation settings, seed, thread count, preview, progress,
@@ -156,7 +156,7 @@ light/dark themes are release requirements.
 
 - Define the draft CLI, output, expression, and GUI contracts.
 - Add `README.md`, `AGENTS.md`, `ROADMAP.md`, and `CHANGELOG.md`.
-- Select GPL-3.0 and add its license text before the first release.
+- [x] Select GPL-3.0 and add its license text before the first release.
 
 ### 2. Regression Suite
 
@@ -195,24 +195,27 @@ light/dark themes are release requirements.
 - [ ] Add a coverage-guided parser fuzz target.
 - [x] Evaluate expressions through the same multithreaded renderer as built-in algorithms.
 
-### 6. Stable CLI Contract
+### 6. Documented CLI Contract
 
-- Finalize option names, exit statuses, and the versioned JSON progress schema.
-- Document compatibility policy and mark the CLI contract stable.
-- Add `--version` and semantic versioning.
+- [x] Document current option names, exit statuses, and JSON progress schema v1.
+- [x] Document the change policy and CLI contract v1.
+- [x] Add `--version` and semantic versioning at 0.3.0.
 
 ### 7. Desktop GUI
 
-- Add the independent Qt/QML Material frontend.
-- Implement configuration, reduced-resolution preview, execution, progress, cancellation, and
+- [x] Add the independent Qt/QML Material frontend with System, Light, and Dark themes.
+- [x] Implement configuration, reduced-resolution preview, execution, progress, cancellation, and
   result handling.
-- Add GUI smoke tests and accessibility checks.
+- [x] Add offscreen QML smoke and process tests, labeled accessible controls, and keyboard-native
+  Qt widgets. Verified with Qt 6.4.2 and the Qt Quick Templates runtime.
+- [x] Add full-resolution previews by default, optional percentage scaling, and live row-by-row
+  previews streamed from the multithreaded CLI without weakening atomic file output.
 
 ### 8. Release
 
-- Add the full GPL-3.0 license text.
+- [x] Tag the early 0.4.0 release with the full GPL-3.0 license text.
 - Add continuous integration for builds, tests, sanitizers, formatting, and GUI compilation.
-- Finish user documentation and package the CLI beside the GUI for Linux.
+- Finish user documentation and package the CLI beside the GUI for Linux before 1.0.
 - Consider AppImage or Flatpak after the application workflow is stable.
 
 ## Deferred

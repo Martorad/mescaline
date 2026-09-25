@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 import selectors
 import signal
+import struct
 import subprocess
 import sys
 import tempfile
@@ -212,6 +213,85 @@ raise SystemExit(status)
             b"\x00\x00\x00\x7f\x7f\x7f\xff\xff\xff",
         )
 
+    def test_preview_stream_matches_ppm_across_thread_counts(self):
+        for threads in (1, 4):
+            with self.subTest(threads=threads):
+                output = self.root / f"preview-{threads}.ppm"
+                result = subprocess.run(
+                    [self.executable, "--expression=x+y", f"--output={output}",
+                     "--width=31", "--height=17", f"--threads={threads}",
+                     "--progress=json", "--preview-stream"],
+                    cwd=self.root, env=self.env, capture_output=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout[:4], b"MPR1")
+                self.assertEqual(struct.unpack_from("<II", result.stdout, 4), (31, 17))
+                rows = {}
+                row_bytes = 31 * 3
+                self.assertEqual(len(result.stdout), 12 + 17 * (4 + row_bytes))
+                for offset in range(12, len(result.stdout), row_bytes + 4):
+                    y, = struct.unpack_from("<I", result.stdout, offset)
+                    self.assertNotIn(y, rows)
+                    rows[y] = result.stdout[offset + 4:offset + 4 + row_bytes]
+                self.assertEqual(set(rows), set(range(17)))
+                self.assertEqual(b"".join(rows[y] for y in range(17)), self.read_ppm(output)[2])
+                events = [json.loads(line)["event"] for line in result.stderr.splitlines()]
+                self.assertEqual(events, ["start", "frame", "complete"])
+
+    def test_large_preview_stream_samples_display_not_saved_image(self):
+        output = self.root / "large-preview.ppm"
+        result = subprocess.run(
+            [self.executable, "--expression=x+y", f"--output={output}",
+             "--width=2051", "--height=11", "--threads=4",
+             "--progress=json", "--preview-stream"],
+            cwd=self.root, env=self.env, capture_output=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout[:4], b"MPR1")
+        self.assertEqual(struct.unpack_from("<II", result.stdout, 4), (684, 4))
+        self.assertEqual(self.read_ppm(output)[:2], (2051, 11))
+        pixels = self.read_ppm(output)[2]
+        sampled_rows = {}
+        row_bytes = 684 * 3
+        for offset in range(12, len(result.stdout), row_bytes + 4):
+            y, = struct.unpack_from("<I", result.stdout, offset)
+            sampled_rows[y] = result.stdout[offset + 4:offset + 4 + row_bytes]
+        self.assertEqual(set(sampled_rows), set(range(4)))
+        for y in range(4):
+            expected = b"".join(
+                pixels[((y * 3) * 2051 + x * 3) * 3:((y * 3) * 2051 + x * 3) * 3 + 3]
+                for x in range(684)
+            )
+            self.assertEqual(sampled_rows[y], expected)
+
+    def test_preview_stream_requires_single_ppm_and_json(self):
+        for extra in (("--progress=json", "--output=bad.gif"),
+                      ("--progress=json", "--frames=2", "--output=bad.ppm"),
+                      ("--output=bad.ppm",)):
+            with self.subTest(extra=extra):
+                result = self.run_cli("--algorithm=checkerboard", "--preview-stream", *extra)
+                self.assertEqual(result.returncode, 2)
+                self.assertFalse((self.root / "bad.ppm").exists())
+
+    def test_broken_preview_pipe_does_not_publish_ppm(self):
+        output = self.root / "interrupted-preview.ppm"
+        process = subprocess.Popen(
+            [self.executable, "--algorithm=lasagna", f"--output={output}",
+             "--width=3000", "--height=3000", "--threads=1", "--preview-stream",
+             "--progress=json"],
+            cwd=self.root, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        try:
+            self.assertEqual(process.stdout.read(12)[:4], b"MPR1")
+            process.stdout.close()
+            _, stderr = process.communicate(timeout=10)
+            self.assertEqual(process.returncode, 3, stderr)
+            self.assertFalse(output.exists())
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.communicate()
+
     def test_rgb_expression_coordinates(self):
         output = self.root / "rgb.ppm"
         result = self.render_expression(output, rgb=("x", "y", "t"), width=2, height=2)
@@ -404,6 +484,13 @@ raise SystemExit(status)
         self.assertIn("--seed", result.stdout)
         self.assertIn("--range-mode", result.stdout)
         self.assertIn("--threads", result.stdout)
+        self.assertIn("--version", result.stdout)
+        self.assertEqual(result.stderr, "")
+
+    def test_version_succeeds(self):
+        result = self.run_cli("--version")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "mescaline 0.4.0\n")
         self.assertEqual(result.stderr, "")
 
     def test_rejects_unknown_algorithm(self):
@@ -531,12 +618,117 @@ raise SystemExit(status)
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         records = [json.loads(line) for line in result.stderr.splitlines()]
-        events = [record["event"] for record in records]
-        self.assertEqual(events, ["start", "frame", "frame", "complete"])
-        self.assertEqual(records[0]["range_mode"], "wrap")
-        self.assertEqual(records[0]["threads"], 2)
-        self.assertEqual(records[0]["mode"], "algorithm")
+        self.assertEqual(
+            records,
+            [
+                {
+                    "version": 1,
+                    "event": "start",
+                    "mode": "algorithm",
+                    "algorithm": "checkerboard",
+                    "palette": None,
+                    "range_mode": "wrap",
+                    "width": 2,
+                    "height": 2,
+                    "frames": 2,
+                    "threads": 2,
+                    "output_kind": "sequence",
+                },
+                {"version": 1, "event": "frame", "index": 0, "completed": 1, "total": 2},
+                {"version": 1, "event": "frame", "index": 1, "completed": 2, "total": 2},
+                {
+                    "version": 1,
+                    "event": "complete",
+                    "output": str((self.root / "frames").resolve()),
+                },
+            ],
+        )
         self.assertEqual(result.stdout, "")
+
+    def test_json_expression_start_events(self):
+        cases = (
+            (
+                ("--expression=x", "--palette=viridis"),
+                {
+                    "version": 1,
+                    "event": "start",
+                    "mode": "scalar",
+                    "algorithm": None,
+                    "palette": "viridis",
+                    "range_mode": "wrap",
+                    "width": 1,
+                    "height": 1,
+                    "frames": 1,
+                    "threads": 1,
+                    "output_kind": "ppm",
+                },
+            ),
+            (
+                ("--expression-r=x", "--expression-g=y", "--expression-b=t"),
+                {
+                    "version": 1,
+                    "event": "start",
+                    "mode": "rgb",
+                    "algorithm": None,
+                    "palette": None,
+                    "range_mode": "wrap",
+                    "width": 1,
+                    "height": 1,
+                    "frames": 1,
+                    "threads": 1,
+                    "output_kind": "ppm",
+                },
+            ),
+        )
+        for index, (mode_arguments, expected) in enumerate(cases):
+            with self.subTest(mode=expected["mode"]):
+                result = self.run_cli(
+                    *mode_arguments,
+                    f"--output=expression-{index}.ppm",
+                    "--width=1",
+                    "--height=1",
+                    "--progress=json",
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                start = json.loads(result.stderr.splitlines()[0])
+                self.assertEqual(start, expected)
+
+    def test_json_encoding_event(self):
+        result = self.run_cli(
+            "--algorithm=checkerboard",
+            "--output=animation.gif",
+            "--width=1",
+            "--height=1",
+            "--progress=json",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        records = [json.loads(line) for line in result.stderr.splitlines()]
+        self.assertEqual(
+            [record["event"] for record in records],
+            ["start", "frame", "encoding", "complete"],
+        )
+        self.assertEqual(records[2], {"version": 1, "event": "encoding"})
+
+    def test_json_escapes_paths_and_replaces_invalid_bytes(self):
+        filename = b"caf\xc3\xa9-\"\n\\-\xff.ppm"
+        result = subprocess.run(
+            [
+                os.fsencode(self.executable),
+                b"--algorithm=checkerboard",
+                b"--output=" + filename,
+                b"--width=1",
+                b"--height=1",
+                b"--progress=json",
+            ],
+            cwd=os.fsencode(self.root),
+            env=self.env,
+            capture_output=True,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        records = [json.loads(line) for line in result.stderr.decode("utf-8").splitlines()]
+        self.assertTrue(records[-1]["output"].endswith('/café-"\n\\-�.ppm'))
+        self.assertTrue(os.path.isfile(os.path.join(os.fsencode(self.root), filename)))
 
     def test_nonfinite_expression_results_warn_and_map_to_zero(self):
         result = self.run_cli(
@@ -561,7 +753,15 @@ raise SystemExit(status)
                 result = self.run_cli(*arguments)
                 self.assertEqual(result.returncode, 2)
                 error = json.loads(result.stderr)
-                self.assertEqual(error["event"], "error")
+                self.assertEqual(
+                    error,
+                    {
+                        "version": 1,
+                        "event": "error",
+                        "status": 2,
+                        "message": "Invalid width 'bad'",
+                    },
+                )
 
     def test_none_progress_is_silent(self):
         result = self.render("image.ppm")
@@ -598,6 +798,10 @@ raise SystemExit(status)
         stdout, stderr = process.communicate(timeout=5)
         self.assertEqual(process.returncode, 128 + signal.SIGTERM, stderr)
         self.assertEqual(stdout, "")
+        self.assertEqual(
+            json.loads(stderr.splitlines()[-1]),
+            {"version": 1, "event": "cancelled", "signal": signal.SIGTERM},
+        )
         self.assertFalse((self.root / "animation.gif").exists())
         self.assertFalse(list(self.root.glob("animation.gif.frames.*")))
 

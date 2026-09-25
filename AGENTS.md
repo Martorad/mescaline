@@ -15,7 +15,8 @@ These instructions apply to the entire repository.
 - Invalid input must fail safely with a useful error and a nonzero exit status.
 - Never pass user input through a shell.
 - Final image files must not be left partially written after a failed render.
-- Breaking CLI changes are allowed until the interface is explicitly marked stable.
+- `CLI.md` describes the current interface. Breaking changes are allowed when they improve the
+  product; update the contract, tests, changelog, and GUI together.
 
 ## Build
 
@@ -78,6 +79,7 @@ deterministic randomness, non-finite results, and thread-independent output.
 ## Documentation
 
 - `README.md` describes behavior that exists now.
-- `ROADMAP.md` describes planned behavior and the draft product contract.
+- `ROADMAP.md` describes planned behavior and product direction.
 - `CHANGELOG.md` records user-visible changes under `Unreleased` until a release is tagged.
+- `CLI.md` is the authoritative current interface and JSON progress contract.
 - Update documentation in the same change that alters its subject.

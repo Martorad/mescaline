@@ -116,7 +116,9 @@ static bool parse_function(parser_t *parser, const char *name, size_t length) {
     if (!parse_expression(parser)) return false;
     skip_space(parser);
     if (argument + 1 < arguments) {
-      if (*parser->cursor != ',') return fail(parser, "expected ',' between function arguments");
+      if (*parser->cursor != ',' && *parser->cursor != ';') {
+        return fail(parser, "expected ',' or ';' between function arguments");
+      }
       parser->cursor++;
     }
   }

@@ -38,12 +38,45 @@ static void destroy_expressions(expression_t *expressions[3]) {
   for (size_t i = 0; i < 3; i++) expression_destroy(expressions[i]);
 }
 
+static void stream_uint32(uint8_t bytes[4], uint32_t value) {
+  for (unsigned i = 0; i < 4; i++) bytes[i] = (uint8_t)(value >> (i * 8));
+}
+
+typedef struct {
+  uint32_t width;
+  uint32_t height;
+  uint32_t step;
+} preview_stream_t;
+
+static bool stream_row(uint32_t y, const uint8_t *row, size_t length, void *context) {
+  const preview_stream_t *stream = context;
+  if (y % stream->step != 0) return true;
+  uint8_t index[4];
+  stream_uint32(index, y / stream->step);
+  if (stream->step == 1) {
+    return fwrite(index, 1, 4, stdout) == 4 && fwrite(row, 1, length, stdout) == length &&
+           fflush(stdout) == 0;
+  }
+  uint8_t sampled[1024 * 3];
+  // ponytail: nearest-neighbor display samples; filter only if preview aliasing matters.
+  for (uint32_t x = 0; x < stream->width; x++) {
+    memcpy(sampled + (size_t)x * 3, row + (size_t)x * stream->step * 3, 3);
+  }
+  return fwrite(index, 1, 4, stdout) == 4 &&
+         fwrite(sampled, 1, (size_t)stream->width * 3, stdout) == (size_t)stream->width * 3 &&
+         fflush(stdout) == 0;
+}
+
 int main(int argc, char **argv) {
   mescaline_options_t options;
   mescaline_error_t error = {0};
   cli_result_t cli_result = cli_parse(argc, argv, &options, &error);
   if (cli_result == CLI_HELP) {
     cli_print_usage(stdout, argv[0]);
+    return MESCALINE_OK;
+  }
+  if (cli_result == CLI_VERSION) {
+    puts("mescaline " MESCALINE_VERSION);
     return MESCALINE_OK;
   }
 
@@ -56,6 +89,15 @@ int main(int argc, char **argv) {
   if (!install_signal_handlers(&error)) {
     progress_error(&progress, &error);
     return error.status;
+  }
+  if (options.preview_stream) {
+    struct sigaction ignore_pipe = {.sa_handler = SIG_IGN};
+    sigemptyset(&ignore_pipe.sa_mask);
+    if (sigaction(SIGPIPE, &ignore_pipe, NULL) != 0) {
+      mescaline_error_set(&error, MESCALINE_INTERNAL, errno, "Could not ignore SIGPIPE");
+      progress_error(&progress, &error);
+      return error.status;
+    }
   }
 
   expression_t *expressions[3] = {0};
@@ -89,12 +131,31 @@ int main(int argc, char **argv) {
   bool retain_staging = false;
   bool output_committed = false;
   uint64_t nonfinite_count = 0;
+  preview_stream_t stream = {0};
+  if (options.preview_stream) {
+    uint32_t longest = image.width > image.height ? image.width : image.height;
+    stream.step = (longest + 1023) / 1024;
+    stream.width = (image.width + stream.step - 1) / stream.step;
+    stream.height = (image.height + stream.step - 1) / stream.step;
+    uint8_t header[12] = {'M', 'P', 'R', '1'};
+    stream_uint32(header + 4, stream.width);
+    stream_uint32(header + 8, stream.height);
+    if (fwrite(header, 1, sizeof(header), stdout) != sizeof(header) || fflush(stdout) != 0) {
+      mescaline_error_set(&error, MESCALINE_OUTPUT, errno, "Could not start preview stream");
+      goto failed;
+    }
+  }
   progress_start(&progress, &options, output_kind(output));
   for (uint32_t frame = 0; frame < options.frames; frame++) {
     uint64_t frame_nonfinite = 0;
-    render_result_t render_result =
-        render_frame(&options.render, frame, options.frames, &image, &frame_nonfinite,
-                     &cancel_signal, &error);
+    render_result_t render_result = options.preview_stream
+                                        ? render_frame_stream(&options.render, frame, options.frames,
+                                                              &image, &frame_nonfinite,
+                                                              &cancel_signal, stream_row, &stream,
+                                                              &error)
+                                        : render_frame(&options.render, frame, options.frames,
+                                                       &image, &frame_nonfinite, &cancel_signal,
+                                                       &error);
     if (render_result == RENDER_CANCELLED) goto cancelled;
     if (render_result == RENDER_FAILED) goto failed;
 

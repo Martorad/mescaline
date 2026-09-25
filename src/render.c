@@ -86,6 +86,15 @@ render_result_t render_frame(const render_spec_t *spec, uint32_t frame, uint32_t
                              image_t *image, uint64_t *nonfinite_count,
                              const volatile sig_atomic_t *cancel_signal,
                              mescaline_error_t *error) {
+  return render_frame_stream(spec, frame, frames, image, nonfinite_count, cancel_signal, NULL,
+                             NULL, error);
+}
+
+render_result_t render_frame_stream(const render_spec_t *spec, uint32_t frame, uint32_t frames,
+                                    image_t *image, uint64_t *nonfinite_count,
+                                    const volatile sig_atomic_t *cancel_signal,
+                                    render_row_callback_t callback, void *context,
+                                    mescaline_error_t *error) {
   if (image->width != spec->width || image->height != spec->height || image->pixels == NULL) {
     mescaline_error_set(error, MESCALINE_RENDER, 0, "Render buffer does not match the canvas");
     return RENDER_FAILED;
@@ -93,15 +102,27 @@ render_result_t render_frame(const render_spec_t *spec, uint32_t frame, uint32_t
 
   int workers = (int)render_worker_count(spec);
   uint64_t invalid = 0;
+  int stream_failed = 0;
   omp_set_dynamic(0);
-#pragma omp parallel for schedule(static) num_threads(workers) reduction(+ : invalid)
+#pragma omp parallel for schedule(static) num_threads(workers) reduction(+ : invalid) reduction(| : stream_failed)
   for (int64_t y = 0; y < spec->height; y++) {
     if (*cancel_signal == 0) {
       uint8_t *row = image->pixels + (size_t)y * spec->width * 3;
       if (spec->mode == RENDER_BUILTIN) algorithm_render_row(spec, frame, (uint32_t)y, row);
       else invalid += render_expression_row(spec, frame, frames, (uint32_t)y, row);
+      if (callback != NULL) {
+        // ponytail: serialize row packets; batch writes if pipe throughput limits rendering.
+#pragma omp critical(mescaline_preview_stream)
+        {
+          if (!callback((uint32_t)y, row, (size_t)spec->width * 3, context)) stream_failed = 1;
+        }
+      }
     }
   }
   *nonfinite_count = invalid;
+  if (stream_failed != 0 && *cancel_signal == 0) {
+    mescaline_error_set(error, MESCALINE_OUTPUT, 0, "Could not write preview stream");
+    return RENDER_FAILED;
+  }
   return *cancel_signal == 0 ? RENDER_OK : RENDER_CANCELLED;
 }

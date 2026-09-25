@@ -2,10 +2,10 @@
 
 All notable user-visible changes to Mescaline will be documented in this file.
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The project will use
-[Semantic Versioning](https://semver.org/) once its first version is assigned.
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The project uses
+[Semantic Versioning](https://semver.org/) beginning with version 0.3.0.
 
-## Unreleased
+## 0.4.0 - 2026-09-25
 
 ### Added
 
@@ -31,6 +31,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - Scalar expression palettes and independent RGB channel expressions.
 - Deterministic seeded `random()` independent of evaluation and thread order.
 - Summary warnings for non-finite expression results.
+- `--version` output and semantic program version 0.3.0.
+- Documented CLI contract v1 with a versioned newline-delimited JSON progress schema.
+- Optional separate Qt Quick / Material desktop frontend with system-following, light, and dark
+  themes, previews, CLI progress, cancellation, and opening rendered output.
+- Moved theme selection into a Settings menu and added a full-height export preview beside the
+  render controls in a window twice as wide.
+- Full-resolution preview by default, optional percentage scaling in Settings, and live preview
+  with multithreaded row streaming and debounced rerendering after edits.
+- Centered Settings dialog with Appearance and Performance categories; numeric GUI inputs accept
+  decimal commas and display periods, including expression inputs with semicolon-separated
+  function arguments where needed.
+- Moved the GUI worker thread setting from the canvas form into Performance settings.
+- Kept large live previews responsive by sampling only the display stream (at most 1024 pixels
+  on the longest side) while retaining full-resolution rendering and atomic PPM output.
+- Added a scalar-expression cheat sheet dialog beside Settings in the GUI.
+- Added the GPL-3.0 license text for the first tagged release.
 
 ### Known limitations
 
@@ -45,3 +61,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - Replaced shell-based FFmpeg execution with fixed-argument `posix_spawnp` execution.
 - Replaced `--algo`, `--horizontal`, `--vertical`, and `--tile` with `--algorithm`, `--width`,
   `--height`, and `--scale`.
+- Adopted a flexible 0.x policy that permits coordinated CLI and GUI improvements without
+  backward compatibility.
+- JSON progress now guarantees valid UTF-8, replacing invalid operating-system path bytes.
+
+### Fixed
+
+- Preview pane now starts at its full size instead of growing when Live is enabled.
+- Expression cheat sheet now displays each item and meaning in aligned columns instead of
+  space-padded prose.

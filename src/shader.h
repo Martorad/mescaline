@@ -78,6 +78,7 @@ typedef struct {
   uint32_t fps;
   progress_mode_t progress;
   bool force;
+  bool preview_stream;
   const char *expression_sources[3];
 } mescaline_options_t;
 

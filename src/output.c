@@ -290,6 +290,12 @@ bool output_prepare(output_plan_t **result, const mescaline_options_t *options,
     output_destroy(plan);
     return false;
   }
+  if (options->preview_stream && plan->kind != OUTPUT_PPM) {
+    mescaline_error_set(error, MESCALINE_USAGE, 0,
+                        "--preview-stream requires a .ppm output path");
+    output_destroy(plan);
+    return false;
+  }
 
   if (plan->kind == OUTPUT_SEQUENCE) {
     if (!ensure_directory(plan->path, error)) {
