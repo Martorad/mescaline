@@ -87,8 +87,8 @@ Human-readable progress and diagnostics are written to standard error. Standard 
 unused so a future streaming mode can use it without ambiguity.
 
 `--progress=json` emits one JSON object per line for the GUI. Events include startup, frame
-completion, encoding, successful completion, cancellation, and errors. The event schema will be
-versioned and frozen before GUI implementation.
+completion, expression warnings, encoding, successful completion, cancellation, and errors. The
+event schema will be versioned and frozen before GUI implementation.
 
 Planned exit statuses are:
 
@@ -126,7 +126,10 @@ constants `pi` and `e`; and functions `sin`, `cos`, `tan`, `sqrt`, `log`, `abs`,
 `pow`, and `random`.
 
 Each `random()` occurrence produces a deterministic value in `[0, 1]` based on the seed, pixel,
-frame, and expression location. It does not depend on evaluation or thread order.
+frame, channel, and expression location. It does not depend on evaluation or thread order.
+
+Expressions are limited to 4096 source bytes, 1024 bytecode instructions, 64 nesting levels, and
+a 64-value evaluation stack.
 
 Expression channels are scaled to byte values and processed by the selected range mode before
 palette or RGB output. `wrap` is the default and applies defined modulo-256 wrapping; `clamp`
@@ -184,11 +187,13 @@ light/dark themes are release requirements.
 
 ### 5. Custom Expressions
 
-- Parse and validate the expression language into an AST or compact bytecode once per job.
-- Implement scalar palettes and independent RGB expressions.
-- Add deterministic seeded randomness.
-- Apply resource limits to untrusted expressions and fuzz the parser.
-- Evaluate expressions through the same multithreaded renderer as built-in algorithms.
+- [x] Parse and validate the expression language into compact bytecode once per job.
+- [x] Implement scalar palettes and independent RGB expressions.
+- [x] Add deterministic seeded randomness.
+- [x] Apply strict length, instruction, nesting, and stack limits to untrusted expressions.
+- [x] Add malformed-input and parser-boundary regression corpora.
+- [ ] Add a coverage-guided parser fuzz target.
+- [x] Evaluate expressions through the same multithreaded renderer as built-in algorithms.
 
 ### 6. Stable CLI Contract
 

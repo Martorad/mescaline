@@ -21,7 +21,8 @@ typedef enum {
 bool image_create(image_t *image, uint32_t width, uint32_t height, mescaline_error_t *error);
 void image_destroy(image_t *image);
 uint32_t render_worker_count(const render_spec_t *spec);
-render_result_t render_frame(const render_spec_t *spec, uint32_t frame, image_t *image,
+render_result_t render_frame(const render_spec_t *spec, uint32_t frame, uint32_t frames,
+                             image_t *image, uint64_t *nonfinite_count,
                              const volatile sig_atomic_t *cancel_signal,
                              mescaline_error_t *error);
 

@@ -29,9 +29,27 @@ typedef enum {
 } algorithm_t;
 
 typedef enum {
+  RENDER_BUILTIN,
+  RENDER_EXPRESSION_SCALAR,
+  RENDER_EXPRESSION_RGB,
+} render_mode_t;
+
+typedef enum {
   RANGE_WRAP,
   RANGE_CLAMP,
 } range_mode_t;
+
+typedef enum {
+  PALETTE_GRAYSCALE,
+  PALETTE_MONOCHROME,
+  PALETTE_VIRIDIS,
+  PALETTE_PLASMA,
+  PALETTE_MAGMA,
+  PALETTE_INFERNO,
+  PALETTE_TURBO,
+} palette_t;
+
+typedef struct expression expression_t;
 
 typedef enum {
   PROGRESS_TEXT,
@@ -42,8 +60,12 @@ typedef enum {
 typedef struct {
   uint32_t width;
   uint32_t height;
+  render_mode_t mode;
   algorithm_t algorithm;
   range_mode_t range_mode;
+  palette_t palette;
+  const expression_t *expressions[3];
+  uint64_t seed;
   uint32_t threads;
   double scale;
   uint8_t color[3];
@@ -56,6 +78,7 @@ typedef struct {
   uint32_t fps;
   progress_mode_t progress;
   bool force;
+  const char *expression_sources[3];
 } mescaline_options_t;
 
 typedef struct {

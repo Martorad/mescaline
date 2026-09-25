@@ -1,7 +1,10 @@
 #include "render.h"
 
 #include "algorithms.h"
+#include "expression.h"
+#include "palette.h"
 
+#include <math.h>
 #include <omp.h>
 #include <stdlib.h>
 
@@ -41,7 +44,46 @@ uint32_t render_worker_count(const render_spec_t *spec) {
   return workers < spec->height ? workers : spec->height;
 }
 
-render_result_t render_frame(const render_spec_t *spec, uint32_t frame, image_t *image,
+static uint64_t render_expression_row(const render_spec_t *spec, uint32_t frame, uint32_t frames,
+                                      uint32_t y, uint8_t *row) {
+  uint64_t nonfinite_count = 0;
+  expression_context_t context = {
+      .py = y,
+      .width = spec->width,
+      .height = spec->height,
+      .frame = frame,
+      .frames = frames,
+      .seed = spec->seed,
+  };
+
+  for (uint32_t x = 0; x < spec->width; x++) {
+    context.px = x;
+    uint8_t *pixel = row + (size_t)x * 3;
+    unsigned channels = spec->mode == RENDER_EXPRESSION_SCALAR ? 1 : 3;
+    uint8_t values[3] = {0};
+    for (unsigned channel = 0; channel < channels; channel++) {
+      context.stream = channel;
+      bool nonfinite;
+      double value = expression_evaluate(spec->expressions[channel], &context, &nonfinite);
+      double scaled = value * 255.0;
+      if (nonfinite || !isfinite(scaled)) {
+        nonfinite_count++;
+        scaled = 0.0;
+      }
+      values[channel] = range_map_channel(scaled, spec->range_mode);
+    }
+
+    if (spec->mode == RENDER_EXPRESSION_SCALAR) {
+      palette_apply(spec->palette, values[0], spec->color, pixel);
+    } else {
+      for (unsigned channel = 0; channel < 3; channel++) pixel[channel] = values[channel];
+    }
+  }
+  return nonfinite_count;
+}
+
+render_result_t render_frame(const render_spec_t *spec, uint32_t frame, uint32_t frames,
+                             image_t *image, uint64_t *nonfinite_count,
                              const volatile sig_atomic_t *cancel_signal,
                              mescaline_error_t *error) {
   if (image->width != spec->width || image->height != spec->height || image->pixels == NULL) {
@@ -50,13 +92,16 @@ render_result_t render_frame(const render_spec_t *spec, uint32_t frame, image_t 
   }
 
   int workers = (int)render_worker_count(spec);
+  uint64_t invalid = 0;
   omp_set_dynamic(0);
-#pragma omp parallel for schedule(static) num_threads(workers)
+#pragma omp parallel for schedule(static) num_threads(workers) reduction(+ : invalid)
   for (int64_t y = 0; y < spec->height; y++) {
     if (*cancel_signal == 0) {
-      algorithm_render_row(spec, frame, (uint32_t)y,
-                           image->pixels + (size_t)y * spec->width * 3);
+      uint8_t *row = image->pixels + (size_t)y * spec->width * 3;
+      if (spec->mode == RENDER_BUILTIN) algorithm_render_row(spec, frame, (uint32_t)y, row);
+      else invalid += render_expression_row(spec, frame, frames, (uint32_t)y, row);
     }
   }
+  *nonfinite_count = invalid;
   return *cancel_signal == 0 ? RENDER_OK : RENDER_CANCELLED;
 }

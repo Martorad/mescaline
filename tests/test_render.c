@@ -24,19 +24,22 @@ int main(void) {
   render_spec_t spec = {
       .width = 12,
       .height = 11,
+      .mode = RENDER_BUILTIN,
       .algorithm = ALGORITHM_CHECKERBOARD,
       .range_mode = RANGE_WRAP,
       .threads = 1,
       .scale = 1.0,
       .color = {0x20, 0x40, 0x60},
   };
+  uint64_t nonfinite_count;
   assert(render_worker_count(&spec) == 1);
   spec.threads = 4;
   assert(render_worker_count(&spec) == 4);
   spec.threads = 1024;
   assert(render_worker_count(&spec) == spec.height);
   spec.threads = 1;
-  assert(render_frame(&spec, 0, &image, &cancel_signal, &error) == RENDER_OK);
+  assert(render_frame(&spec, 0, 1, &image, &nonfinite_count, &cancel_signal, &error) == RENDER_OK);
+  assert(nonfinite_count == 0);
   for (uint32_t y = 0; y < spec.height; y++) {
     for (uint32_t x = 0; x < spec.width; x++) {
       bool on = ((x / 10 + (y / 10) % 2) % 2) == 0;
@@ -54,16 +57,19 @@ int main(void) {
          algorithm++) {
       spec.algorithm = algorithm;
       spec.threads = 1;
-      assert(render_frame(&spec, 2, &image, &cancel_signal, &error) == RENDER_OK);
+      assert(render_frame(&spec, 2, 3, &image, &nonfinite_count, &cancel_signal, &error) ==
+             RENDER_OK);
       memcpy(single_threaded, image.pixels, image.size);
       spec.threads = 4;
-      assert(render_frame(&spec, 2, &image, &cancel_signal, &error) == RENDER_OK);
+      assert(render_frame(&spec, 2, 3, &image, &nonfinite_count, &cancel_signal, &error) ==
+             RENDER_OK);
       assert(memcmp(single_threaded, image.pixels, image.size) == 0);
     }
   }
 
   cancel_signal = SIGTERM;
-  assert(render_frame(&spec, 0, &image, &cancel_signal, &error) == RENDER_CANCELLED);
+  assert(render_frame(&spec, 0, 1, &image, &nonfinite_count, &cancel_signal, &error) ==
+         RENDER_CANCELLED);
   image_destroy(&image);
   return 0;
 }

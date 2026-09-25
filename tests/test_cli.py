@@ -101,15 +101,30 @@ raise SystemExit(status)
             args.append(f"--{name}" if value is True else f"--{name}={value}")
         return self.run_cli(*args, env=env)
 
+    def render_expression(
+        self, output, expression=None, rgb=None, width=4, height=3, env=None, **options
+    ):
+        args = [f"--output={output}", f"--width={width}", f"--height={height}", "--progress=none"]
+        if expression is not None:
+            args.append(f"--expression={expression}")
+        if rgb is not None:
+            args.extend(
+                (f"--expression-r={rgb[0]}", f"--expression-g={rgb[1]}", f"--expression-b={rgb[2]}")
+            )
+        for name, value in options.items():
+            name = name.replace("_", "-")
+            args.append(f"--{name}" if value is True else f"--{name}={value}")
+        return self.run_cli(*args, env=env)
+
     def test_requires_output(self):
         result = self.run_cli("--algorithm=checkerboard")
         self.assertEqual(result.returncode, 2)
         self.assertIn("--output is required", result.stderr)
 
-    def test_requires_algorithm(self):
+    def test_requires_rendering_mode(self):
         result = self.run_cli("--output=image.ppm")
         self.assertEqual(result.returncode, 2)
-        self.assertIn("--algorithm is required", result.stderr)
+        self.assertIn("Choose exactly one rendering mode", result.stderr)
 
     def test_rejects_invalid_options_and_arguments(self):
         for argument in ("--algo=checkerboard", "--unknown=value", "positional"):
@@ -136,6 +151,8 @@ raise SystemExit(status)
             "--threads=-1",
             "--threads=invalid",
             "--threads=1025",
+            "--seed=-1",
+            "--seed=18446744073709551616",
         )
         for argument in cases:
             with self.subTest(argument=argument):
@@ -185,6 +202,110 @@ raise SystemExit(status)
         result = self.render(output, width=1, height=1, color="123456")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.read_ppm(output)[2], bytes.fromhex("123456"))
+
+    def test_scalar_expression_coordinates(self):
+        output = self.root / "scalar.ppm"
+        result = self.render_expression(output, "x", width=3, height=1, threads=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self.read_ppm(output)[2],
+            b"\x00\x00\x00\x7f\x7f\x7f\xff\xff\xff",
+        )
+
+    def test_rgb_expression_coordinates(self):
+        output = self.root / "rgb.ppm"
+        result = self.render_expression(output, rgb=("x", "y", "t"), width=2, height=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self.read_ppm(output)[2],
+            bytes((0, 0, 0, 255, 0, 0, 0, 255, 0, 255, 255, 0)),
+        )
+
+    def test_scalar_palettes_and_monochrome_color(self):
+        for palette in ("grayscale", "monochrome", "viridis", "plasma", "magma", "inferno", "turbo"):
+            with self.subTest(palette=palette):
+                output = self.root / f"{palette}.ppm"
+                options = {"palette": palette}
+                if palette == "monochrome":
+                    options["color"] = "123456"
+                result = self.render_expression(output, "x", width=2, height=1, **options)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.read_ppm(output)[:2], (2, 1))
+        self.assertEqual(self.read_ppm(self.root / "monochrome.ppm")[2][-3:], bytes.fromhex("123456"))
+        self.assertEqual(self.read_ppm(self.root / "viridis.ppm")[2][:3], bytes((68, 1, 84)))
+        self.assertEqual(self.read_ppm(self.root / "viridis.ppm")[2][-3:], bytes((253, 231, 37)))
+
+    def test_expression_random_is_seeded_and_thread_independent(self):
+        first = self.root / "random-first.ppm"
+        second = self.root / "random-second.ppm"
+        different = self.root / "random-different.ppm"
+        self.assertEqual(
+            self.render_expression(first, "random()", width=31, height=17, seed=42, threads=1).returncode,
+            0,
+        )
+        self.assertEqual(
+            self.render_expression(second, "random()", width=31, height=17, seed=42, threads=4).returncode,
+            0,
+        )
+        self.assertEqual(
+            self.render_expression(different, "random()", width=31, height=17, seed=43).returncode,
+            0,
+        )
+        self.assertEqual(first.read_bytes(), second.read_bytes())
+        self.assertNotEqual(first.read_bytes(), different.read_bytes())
+
+        rgb = self.root / "random-rgb.ppm"
+        result = self.render_expression(
+            rgb, rgb=("random()", "random()", "random()"), width=2, height=1, seed=42
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        pixels = self.read_ppm(rgb)[2]
+        self.assertTrue(any(len(set(pixels[index : index + 3])) > 1 for index in range(0, len(pixels), 3)))
+
+    def test_expression_animation_variables(self):
+        frames = self.root / "expression-frames"
+        result = self.render_expression(frames, "t", width=1, height=1, frames=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.read_ppm(frames / "frame-000000.ppm")[2], b"\0\0\0")
+        self.assertEqual(self.read_ppm(frames / "frame-000001.ppm")[2], b"\x7f\x7f\x7f")
+
+    def test_expression_range_modes(self):
+        wrapped = self.root / "expression-wrapped.ppm"
+        clamped = self.root / "expression-clamped.ppm"
+        self.assertEqual(self.render_expression(wrapped, "2", width=1, height=1).returncode, 0)
+        self.assertEqual(
+            self.render_expression(clamped, "2", width=1, height=1, range_mode="clamp").returncode,
+            0,
+        )
+        self.assertEqual(self.read_ppm(wrapped)[2], b"\xfe\xfe\xfe")
+        self.assertEqual(self.read_ppm(clamped)[2], b"\xff\xff\xff")
+
+    def test_rejects_invalid_expressions(self):
+        for expression in ("1 +", "unknown", "sin()", "min(1)", "random(1)", "(1"):
+            with self.subTest(expression=expression):
+                result = self.render_expression("invalid.ppm", expression)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("Expression error", result.stderr)
+                self.assertFalse((self.root / "invalid.ppm").exists())
+
+    def test_rejects_expression_mode_conflicts(self):
+        cases = (
+            ("--algorithm=carreaux", "--expression=x"),
+            ("--expression=x", "--expression-r=x", "--expression-g=y", "--expression-b=t"),
+            ("--expression-r=x", "--expression-g=y"),
+            ("--expression=x", "--scale=2"),
+            ("--algorithm=carreaux", "--palette=viridis"),
+            ("--algorithm=carreaux", "--seed=1"),
+            ("--expression=x", "--color=ffffff"),
+            ("--expression-r=x", "--expression-g=y", "--expression-b=t", "--palette=viridis"),
+        )
+        for options in cases:
+            with self.subTest(options=options):
+                result = self.run_cli("--output=invalid.ppm", *options)
+                self.assertEqual(result.returncode, 2)
+
+        result = self.run_cli("--expression=x", "--output=invalid.ppm", "--palette=unknown")
+        self.assertEqual(result.returncode, 2)
 
     def test_repeated_render_is_deterministic(self):
         first = self.root / "first.ppm"
@@ -278,6 +399,9 @@ raise SystemExit(status)
         self.assertIn("Usage:", result.stdout)
         self.assertIn("--output", result.stdout)
         self.assertIn("--algorithm", result.stdout)
+        self.assertIn("--expression", result.stdout)
+        self.assertIn("--palette", result.stdout)
+        self.assertIn("--seed", result.stdout)
         self.assertIn("--range-mode", result.stdout)
         self.assertIn("--threads", result.stdout)
         self.assertEqual(result.stderr, "")
@@ -411,7 +535,22 @@ raise SystemExit(status)
         self.assertEqual(events, ["start", "frame", "frame", "complete"])
         self.assertEqual(records[0]["range_mode"], "wrap")
         self.assertEqual(records[0]["threads"], 2)
+        self.assertEqual(records[0]["mode"], "algorithm")
         self.assertEqual(result.stdout, "")
+
+    def test_nonfinite_expression_results_warn_and_map_to_zero(self):
+        result = self.run_cli(
+            "--expression=1/0",
+            "--output=nonfinite.ppm",
+            "--width=2",
+            "--height=2",
+            "--progress=json",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        records = [json.loads(line) for line in result.stderr.splitlines()]
+        warning = next(record for record in records if record["event"] == "warning")
+        self.assertEqual(warning, {"version": 1, "event": "warning", "kind": "nonfinite", "count": 4})
+        self.assertEqual(self.read_ppm(self.root / "nonfinite.ppm")[2], b"\0" * 12)
 
     def test_json_errors_do_not_depend_on_option_order(self):
         for arguments in (

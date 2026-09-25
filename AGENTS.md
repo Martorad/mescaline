@@ -10,6 +10,8 @@ These instructions apply to the entire repository.
 - Linux is the first supported platform, but avoid unnecessary barriers to Windows and macOS.
 - Identical inputs must produce identical output regardless of thread count.
 - `--range-mode=wrap` is the visual-compatibility default; clamping is opt-in.
+- Expressions are bounded calculator bytecode. Never evaluate them through C compilation, TeX,
+  a shell, or another general-purpose runtime.
 - Invalid input must fail safely with a useful error and a nonzero exit status.
 - Never pass user input through a shell.
 - Final image files must not be left partially written after a failed render.
@@ -59,6 +61,9 @@ runtime; normal and AddressSanitizer/UndefinedBehaviorSanitizer builds remain re
 
 Keep focused C unit tests for the rendering core and black-box Python tests for the executable.
 Do not expose internal functions solely to test them.
+
+Expression parser changes must test valid precedence, malformed input, resource limits,
+deterministic randomness, non-finite results, and thread-independent output.
 
 ## C Style
 

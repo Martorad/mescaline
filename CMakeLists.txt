@@ -13,7 +13,9 @@ add_executable(mescaline
   src/algorithms.c
   src/cli.c
   src/encode.c
+  src/expression.c
   src/output.c
+  src/palette.c
   src/progress.c
   src/render.c
   src/shader.c
@@ -35,11 +37,19 @@ if(BUILD_TESTING)
                             "$<TARGET_FILE:mescaline>")
 
   add_executable(mescaline_render_test tests/test_render.c src/algorithms.c src/render.c)
+  target_sources(mescaline_render_test PRIVATE src/expression.c src/palette.c)
   target_include_directories(mescaline_render_test PRIVATE src)
   target_compile_definitions(mescaline_render_test PRIVATE _POSIX_C_SOURCE=200809L)
   target_compile_options(mescaline_render_test PRIVATE -Wall -Wextra -Wpedantic)
   target_link_libraries(mescaline_render_test PRIVATE m OpenMP::OpenMP_C)
   add_test(NAME render COMMAND mescaline_render_test)
+
+  add_executable(mescaline_expression_test tests/test_expression.c src/expression.c src/palette.c)
+  target_include_directories(mescaline_expression_test PRIVATE src)
+  target_compile_definitions(mescaline_expression_test PRIVATE _POSIX_C_SOURCE=200809L)
+  target_compile_options(mescaline_expression_test PRIVATE -Wall -Wextra -Wpedantic)
+  target_link_libraries(mescaline_expression_test PRIVATE m)
+  add_test(NAME expression COMMAND mescaline_expression_test)
 endif()
 
 
@@ -54,7 +64,7 @@ if(MESCALINE_ENABLE_THREAD_SANITIZER)
 
   set(thread_sanitized_targets mescaline)
   if(BUILD_TESTING)
-    list(APPEND thread_sanitized_targets mescaline_render_test)
+    list(APPEND thread_sanitized_targets mescaline_render_test mescaline_expression_test)
   endif()
   foreach(target IN LISTS thread_sanitized_targets)
     target_compile_options(${target} PRIVATE -O1 -fno-omit-frame-pointer -fsanitize=thread)
@@ -68,7 +78,7 @@ if(MESCALINE_ENABLE_SANITIZERS)
 
   set(sanitized_targets mescaline)
   if(BUILD_TESTING)
-    list(APPEND sanitized_targets mescaline_render_test)
+    list(APPEND sanitized_targets mescaline_render_test mescaline_expression_test)
   endif()
   foreach(target IN LISTS sanitized_targets)
     target_compile_options(${target} PRIVATE -O1 -fno-omit-frame-pointer

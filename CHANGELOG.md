@@ -27,6 +27,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - Configurable `wrap` and `clamp` range modes, with legacy wrapping restored as the default.
 - OpenMP row-parallel rendering with automatic or explicit worker counts.
 - Thread-count determinism tests, scaling benchmarks, and a ThreadSanitizer build configuration.
+- Bounded custom-expression bytecode with arithmetic, variables, functions, and animation inputs.
+- Scalar expression palettes and independent RGB channel expressions.
+- Deterministic seeded `random()` independent of evaluation and thread order.
+- Summary warnings for non-finite expression results.
 
 ### Known limitations
 
